@@ -42,20 +42,12 @@ public class Corral.Window : Adw.ApplicationWindow {
         menu_btn.menu_model = header_menu;
         menu_btn.add_css_class ("flat");
 
-        var header = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
-        header.add_css_class ("toolbar");
-        header.append (new Gtk.WindowControls (Gtk.PackType.START));
-        var title_widget = new Adw.WindowTitle ("Corral", "Herdr");
-        title_widget.hexpand = true;
-        header.append (title_widget);
-        header.append (menu_btn);
-        header.append (new Gtk.WindowControls (Gtk.PackType.END));
-
-        var handle = new Gtk.WindowHandle ();
-        handle.child = header;
+        var header = new Adw.HeaderBar ();
+        header.title_widget = new Adw.WindowTitle ("Corral", "Herdr");
+        header.pack_end (menu_btn);
 
         toolbar_view = new Adw.ToolbarView ();
-        toolbar_view.add_top_bar (handle);
+        toolbar_view.add_top_bar (header);
         content = toolbar_view;
 
         close_request.connect (() => {
