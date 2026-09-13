@@ -21,6 +21,8 @@ struct _CorralGhostty {
     ghostty_surface_t surface;
     gboolean started;
     gboolean precision_scroll;
+    gboolean gpu_dropped;
+    gint tick_queued;
     guint tick_source;
 };
 
@@ -57,12 +59,13 @@ static gboolean
 on_tick_idle (gpointer data)
 {
     CorralGhostty *self = CORRAL_GHOSTTY (data);
-    self->tick_source = 0;
+    g_atomic_int_set (&self->tick_queued, 0);
+    g_atomic_int_set ((gint *) &self->tick_source, 0);
+    /* Tick drains mailboxes and may emit GHOSTTY_ACTION_RENDER, which
+     * queues a GL frame. Do not draw here: Ghostty GTK, macOS, and
+     * Ghostling all keep I/O/tick off the paint path. */
     if (self->app != NULL) {
         ghostty_app_tick (self->app);
-    }
-    if (self->surface != NULL) {
-        gtk_gl_area_queue_render (GTK_GL_AREA (self));
     }
     return G_SOURCE_REMOVE;
 }
@@ -70,9 +73,16 @@ on_tick_idle (gpointer data)
 static void
 queue_tick (CorralGhostty *self)
 {
-    if (self->tick_source == 0) {
-        self->tick_source = g_idle_add (on_tick_idle, self);
+    /* wakeup_cb can run on Ghostty's IO/renderer threads. Always defer
+     * to the GTK loop; never tick inline (that re-enters from tick). */
+    if (!g_atomic_int_compare_and_exchange (&self->tick_queued, 0, 1)) {
+        return;
     }
+    guint id = g_idle_add_full (G_PRIORITY_DEFAULT,
+                                on_tick_idle,
+                                g_object_ref (self),
+                                g_object_unref);
+    g_atomic_int_set ((gint *) &self->tick_source, (gint) id);
 }
 
 static void
@@ -124,7 +134,7 @@ action_cb (ghostty_app_t app, ghostty_target_s target, ghostty_action_s action)
 
     switch (action.tag) {
     case GHOSTTY_ACTION_RENDER:
-        if (self != NULL) {
+        if (self != NULL && !self->gpu_dropped) {
             gtk_gl_area_queue_render (GTK_GL_AREA (self));
         }
         return true;
@@ -142,7 +152,8 @@ action_cb (ghostty_app_t app, ghostty_target_s target, ghostty_action_s action)
         return false;
     case GHOSTTY_ACTION_OPEN_URL:
         if (action.action.open_url.url != NULL) {
-            g_app_info_launch_default_for_uri (action.action.open_url.url, NULL, NULL);
+            g_app_info_launch_default_for_uri_async (
+                action.action.open_url.url, NULL, NULL, NULL, NULL);
         }
         return true;
     case GHOSTTY_ACTION_MOUSE_SHAPE:
@@ -441,12 +452,20 @@ on_focus_leave (GtkEventControllerFocus *controller, gpointer user_data)
 }
 
 static void
+cancel_tick (CorralGhostty *self)
+{
+    guint tick = (guint) g_atomic_int_get ((gint *) &self->tick_source);
+    if (tick != 0) {
+        g_source_remove (tick);
+        g_atomic_int_set ((gint *) &self->tick_source, 0);
+    }
+    g_atomic_int_set (&self->tick_queued, 0);
+}
+
+static void
 destroy_surface (CorralGhostty *self)
 {
-    if (self->tick_source != 0) {
-        g_source_remove (self->tick_source);
-        self->tick_source = 0;
-    }
+    cancel_tick (self);
     if (self->surface != NULL) {
         ghostty_surface_free (self->surface);
         self->surface = NULL;
@@ -460,6 +479,7 @@ destroy_surface (CorralGhostty *self)
         self->config = NULL;
     }
     self->started = FALSE;
+    self->gpu_dropped = FALSE;
 }
 
 static void
@@ -720,13 +740,36 @@ create_surface (CorralGhostty *self, GError **error)
 static void
 on_realize (GtkGLArea *area)
 {
+    CorralGhostty *self = CORRAL_GHOSTTY (area);
     gtk_gl_area_make_current (area);
+    if (gtk_gl_area_get_error (area) != NULL) {
+        return;
+    }
+    /* GtkGLArea can unrealize/realize without destroying the widget
+     * (scale change, moving outputs). Ghostty GTK keeps the PTY and
+     * only rebuilds GPU state. Freeing the surface here joined IO
+     * threads from the GTK thread and froze the window. */
+    if (self->surface != NULL && self->gpu_dropped) {
+        ghostty_surface_display_realized (self->surface);
+        self->gpu_dropped = FALSE;
+        gtk_gl_area_queue_render (area);
+    }
 }
 
 static void
 on_unrealize (GtkGLArea *area)
 {
-    destroy_surface (CORRAL_GHOSTTY (area));
+    CorralGhostty *self = CORRAL_GHOSTTY (area);
+    if (self->surface == NULL) {
+        return;
+    }
+    gtk_gl_area_make_current (area);
+    if (gtk_gl_area_get_error (area) != NULL) {
+        g_warning ("GL context unavailable on unrealize; GPU resources may leak");
+        return;
+    }
+    ghostty_surface_display_unrealized (self->surface);
+    self->gpu_dropped = TRUE;
 }
 
 static void
@@ -774,10 +817,7 @@ on_render (GtkGLArea *area, GdkGLContext *context)
         }
     }
 
-    if (self->app != NULL) {
-        ghostty_app_tick (self->app);
-    }
-    if (self->surface != NULL) {
+    if (self->surface != NULL && !self->gpu_dropped) {
         ghostty_surface_draw (self->surface);
     }
 
@@ -903,6 +943,9 @@ corral_ghostty_init (CorralGhostty *self)
 {
     self->font_size = 10.0f;
     self->precision_scroll = FALSE;
+    self->gpu_dropped = FALSE;
+    self->tick_queued = 0;
+    self->tick_source = 0;
     gtk_gl_area_set_allowed_apis (GTK_GL_AREA (self), GDK_GL_API_GL);
     gtk_gl_area_set_has_depth_buffer (GTK_GL_AREA (self), FALSE);
     gtk_gl_area_set_has_stencil_buffer (GTK_GL_AREA (self), FALSE);

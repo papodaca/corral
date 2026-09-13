@@ -1,5 +1,5 @@
 diff --git a/include/ghostty.h b/include/ghostty.h
-index 40ff55c..51459f9 100644
+index 40ff55c..20e7286 100644
 --- a/include/ghostty.h
 +++ b/include/ghostty.h
 @@ -38,6 +38,7 @@ typedef enum {
@@ -25,8 +25,17 @@ index 40ff55c..51459f9 100644
  } ghostty_platform_u;
  
  typedef enum {
+@@ -1082,6 +1088,8 @@ bool ghostty_surface_needs_confirm_quit(ghostty_surface_t);
+ bool ghostty_surface_process_exited(ghostty_surface_t);
+ void ghostty_surface_refresh(ghostty_surface_t);
+ void ghostty_surface_draw(ghostty_surface_t);
++void ghostty_surface_display_realized(ghostty_surface_t);
++void ghostty_surface_display_unrealized(ghostty_surface_t);
+ void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
+ void ghostty_surface_set_focus(ghostty_surface_t, bool);
+ void ghostty_surface_set_occlusion(ghostty_surface_t, bool);
 diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
-index 0d5a4f8..e25c22e 100644
+index 0d5a4f8..19c6b3f 100644
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
 @@ -8,7 +8,23 @@ const std = @import("std");
@@ -146,7 +155,29 @@ index 0d5a4f8..e25c22e 100644
          const encoder = command_buffer.msgSend(
              objc.Object,
              objc.sel("renderCommandEncoderWithDescriptor:"),
-@@ -2090,12 +2120,9 @@ pub const CAPI = struct {
+@@ -1690,6 +1720,21 @@ pub const CAPI = struct {
+         surface.draw();
+     }
+ 
++    /// Recreate GPU resources after the host GL context is current again.
++    /// Matches GTK's GtkGLArea realize path. The embedder must make the
++    /// context current first.
++    export fn ghostty_surface_display_realized(surface: *Surface) void {
++        surface.core_surface.renderer.displayRealized() catch |err| {
++            log.err("error in displayRealized err={}", .{err});
++        };
++    }
++
++    /// Drop GPU resources when the host GL context is going away.
++    /// Matches GTK's GtkGLArea unrealize path. Do not free the surface.
++    export fn ghostty_surface_display_unrealized(surface: *Surface) void {
++        surface.core_surface.renderer.displayUnrealized();
++    }
++
+     /// Update the size of a surface. This will trigger resize notifications
+     /// to the pty and the renderer.
+     export fn ghostty_surface_set_size(surface: *Surface, w: u32, h: u32) void {
+@@ -2090,12 +2135,9 @@ pub const CAPI = struct {
          app: *App,
          window: *anyopaque,
      ) void {
@@ -187,7 +218,7 @@ index 9276c99..0913b64 100644
          // get access to glib for dbus.
          if (self.config.flatpak) step.linkSystemLibrary2("gtk4", dynamic_link_opts);
 diff --git a/src/renderer/OpenGL.zig b/src/renderer/OpenGL.zig
-index 4b01da0..3362166 100644
+index 4b01da0..4591af9 100644
 --- a/src/renderer/OpenGL.zig
 +++ b/src/renderer/OpenGL.zig
 @@ -170,9 +170,8 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
@@ -224,3 +255,14 @@ index 4b01da0..3362166 100644
      }
  }
  
+@@ -238,7 +233,9 @@ pub fn displayRealized(self: *const OpenGL) void {
+     _ = self;
+ 
+     switch (apprt.runtime) {
+-        apprt.gtk => prepareContext(null) catch |err| {
++        apprt.gtk,
++        apprt.embedded,
++        => prepareContext(null) catch |err| {
+             log.warn(
+                 "Error preparing GL context in displayRealized, err={}",
+                 .{err},
