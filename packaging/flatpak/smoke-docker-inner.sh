@@ -75,6 +75,9 @@ chown builder:builder "${ROOT}/packaging/flatpak/dev.corral.Corral.ci.json"
 sudo -u builder env HOME=/home/builder ROOT="${ROOT}" VERSION="${VERSION}" \
   bash -euo pipefail "${ROOT}/scripts/sync-ghostty.sh"
 sudo -u builder env HOME=/home/builder ROOT="${ROOT}" VERSION="${VERSION}" \
+  ZIG_GLOBAL_CACHE_DIR="${ROOT}/third_party/zig-cache" \
+  bash -euo pipefail "${ROOT}/scripts/fetch-ghostty-zig-deps.sh"
+sudo -u builder env HOME=/home/builder ROOT="${ROOT}" VERSION="${VERSION}" \
   bash -euo pipefail <<'EOF'
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 flatpak install -y --user flathub \

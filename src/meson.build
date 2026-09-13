@@ -65,6 +65,15 @@ libghostty_dep = declare_dependency (
   ],
 )
 
+# Meson 1.9 Vala inspects link_whole targets for .vapi files and crashes on
+# CustomTargetIndex. Keep the archive off that path; --whole-archive still
+# pulls every libghostty object into the final link.
+libghostty_link_args = [
+  '-Wl,--whole-archive',
+  libghostty_built[1].full_path (),
+  '-Wl,--no-whole-archive',
+]
+
 corral_resources = gnome.compile_resources (
   'corral-resources',
   meson.project_source_root () / 'data' / 'corral.gresource.xml',
@@ -103,7 +112,8 @@ executable (
     '--vapidir', meson.current_source_dir (),
     '--pkg', 'ghostty-widget',
   ],
-  link_whole: libghostty_built[1],
+  link_args: libghostty_link_args,
+  link_depends: libghostty_built[1],
   install: true,
 )
 
@@ -116,6 +126,7 @@ ghostty_spike = executable (
     libghostty_dep,
   ],
   include_directories: [ghostty_inc, include_directories ('.')],
-  link_whole: libghostty_built[1],
+  link_args: libghostty_link_args,
+  link_depends: libghostty_built[1],
   install: false,
 )

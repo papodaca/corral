@@ -2,6 +2,7 @@
 /builddir/
 /build-pkg/
 /third_party/zig-linux/
+/third_party/zig-cache/
 /third_party/ghostty/
 *~
 *.swp

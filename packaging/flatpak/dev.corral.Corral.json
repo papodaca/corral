@@ -71,7 +71,8 @@
           "--share=network"
         ],
         "env": {
-          "ZIG": "/app/bin/zig"
+          "ZIG": "/app/bin/zig",
+          "ZIG_GLOBAL_CACHE_DIR": "/run/build/corral/third_party/zig-cache"
         }
       },
       "sources": [

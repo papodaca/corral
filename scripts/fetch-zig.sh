@@ -26,7 +26,7 @@ tarball="zig-${ARCH}-linux-${VERSION}.tar.xz"
 url="https://ziglang.org/download/${VERSION}/${tarball}"
 tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
-echo "Downloading ${url}"
+echo "Downloading ${url}" >&2
 curl -fL --retry 3 -o "${tmp}/${tarball}" "${url}"
 mkdir -p "${DEST}"
 tar -C "${tmp}" -xf "${tmp}/${tarball}"
