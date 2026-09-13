@@ -1,0 +1,74 @@
+# Local Arch package. From this directory:
+#   makepkg -si
+# Builds the git checkout two directories up (repo root).
+
+pkgname=corral
+pkgver=0.1.0.r0.unknown
+pkgrel=1
+pkgdesc='GTK window that runs Herdr inside Ghostty'
+url='https://github.com/papodaca/corral'
+license=('MIT')
+arch=('x86_64' 'aarch64')
+
+_repo_root=$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../.." && pwd)
+_zigver=0.15.2
+
+source=()
+sha256sums=()
+source_x86_64=("https://ziglang.org/download/${_zigver}/zig-x86_64-linux-${_zigver}.tar.xz")
+sha256sums_x86_64=('02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239')
+source_aarch64=("https://ziglang.org/download/${_zigver}/zig-aarch64-linux-${_zigver}.tar.xz")
+sha256sums_aarch64=('958ed7d1e00d0ea76590d27666efbf7a932281b3d7ba0c6b01b0ff26498f667f')
+
+options=('!debug')
+
+makedepends=(
+  meson
+  ninja
+  vala
+  pkgconf
+  git
+  gcc
+  desktop-file-utils
+  appstream
+)
+
+depends=(
+  gtk4
+  libadwaita
+  libepoxy
+  glib2
+  gcc-libs
+  hicolor-icon-theme
+)
+
+pkgver() {
+  "${_repo_root}/packaging/version.sh" --arch
+}
+
+build() {
+  cd "${_repo_root}"
+  export ZIG="${srcdir}/zig-${CARCH}-linux-${_zigver}/zig"
+  if [[ ! -x ${ZIG} ]]; then
+    echo "Zig ${_zigver} missing at ${ZIG}" >&2
+    exit 1
+  fi
+  if [[ ! -f build-pkg/build.ninja ]]; then
+    arch-meson . build-pkg
+  fi
+  meson compile -C build-pkg
+}
+
+check() {
+  cd "${_repo_root}"
+  meson test -C build-pkg --print-errorlogs
+  desktop-file-validate build-pkg/data/dev.corral.Corral.desktop
+  appstreamcli validate --no-net --explain \
+    data/dev.corral.Corral.metainfo.xml
+}
+
+package() {
+  meson install -C "${_repo_root}/build-pkg" --destdir "${pkgdir}"
+  install -Dm644 "${_repo_root}/LICENSE" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/dev/corral/Corral">
+    <file alias="gtk/help-overlay.ui">data/gtk/help-overlay.ui</file>
+    <file alias="icons/scalable/apps/dev.corral.Corral.svg" compressed="true">data/icons/hicolor/scalable/apps/dev.corral.Corral.svg</file>
+    <file alias="icons/scalable/apps/dev.corral.Corral-symbolic.svg" compressed="true">data/icons/hicolor/symbolic/apps/dev.corral.Corral-symbolic.svg</file>
+  </gresource>
+</gresources>

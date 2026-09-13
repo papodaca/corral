@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Build libghostty (embedded runtime) and copy artifacts.
+# Usage: build-libghostty.sh GHOSTTY_SRC PREFIX STAMP_HEADER [SO_COPY]
+set -euo pipefail
+
+SRC=${1:?ghostty source dir}
+PREFIX=${2:?install prefix}
+STAMP=${3:?stamp header}
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+PATCH="${ROOT}/patches/ghostty-gtk-embed.patch"
+
+find_zig() {
+  if [[ -n ${ZIG:-} && -x ${ZIG} ]]; then
+    printf '%s' "${ZIG}"
+    return
+  fi
+  local candidate
+  for candidate in \
+    "${ROOT}/third_party/zig-linux/zig" \
+    /tmp/corral-tools/zig-x86_64-linux-0.15.2/zig \
+    "$(command -v zig || true)"; do
+    if [[ -z ${candidate} || ! -x ${candidate} ]]; then
+      continue
+    fi
+    ver=$("${candidate}" version 2>/dev/null || true)
+    if [[ ${ver} == 0.15.2 ]]; then
+      printf '%s' "${candidate}"
+      return
+    fi
+  done
+  echo "Need Zig 0.15.2 on PATH or ZIG= (got ${ver:-none})" >&2
+  echo "Run scripts/fetch-zig.sh first." >&2
+  exit 1
+}
+
+if [[ ! -f ${SRC}/include/ghostty.h ]]; then
+  echo "Ghostty sources missing at ${SRC}. Run scripts/sync-ghostty.sh" >&2
+  exit 1
+fi
+
+if [[ -f ${PATCH} ]] && ! grep -q GHOSTTY_PLATFORM_GTK "${SRC}/include/ghostty.h"; then
+  git -C "${SRC}" apply "${PATCH}"
+fi
+
+ZIG_BIN=$(find_zig)
+mkdir -p "${PREFIX}"
+(
+  cd "${SRC}"
+  "${ZIG_BIN}" build \
+    -Dapp-runtime=none \
+    -Doptimize=ReleaseFast \
+    -Demit-exe=false \
+    -Demit-docs=false \
+    -Demit-helpgen=false \
+    -p "${PREFIX}"
+)
+
+if [[ ! -f ${PREFIX}/lib/libghostty.so ]]; then
+  echo "libghostty.so missing after zig build" >&2
+  ls -la "${PREFIX}/lib" >&2 || true
+  exit 1
+fi
+
+mkdir -p "${PREFIX}/share/ghostty"
+if [[ -d ${SRC}/src/shell-integration ]]; then
+  rm -rf "${PREFIX}/share/ghostty/shell-integration"
+  cp -a "${SRC}/src/shell-integration" "${PREFIX}/share/ghostty/shell-integration"
+fi
+
+cat > "${STAMP}" <<'EOF'
+#pragma once
+#define CORRAL_LIBGHOSTTY_BUILT 1
+EOF
+
+if [[ $# -ge 4 ]]; then
+  cp -f "${PREFIX}/lib/libghostty.so" "${4}"
+fi

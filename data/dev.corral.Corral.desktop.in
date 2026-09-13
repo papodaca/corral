@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Corral
+Comment=GTK window for Herdr, rendered with Ghostty
+Exec=corral
+Icon=dev.corral.Corral
+Terminal=false
+Type=Application
+Categories=GTK;System;TerminalEmulator;
+StartupNotify=true
+Keywords=herdr;terminal;ghostty;agent;

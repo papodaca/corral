@@ -1,0 +1,31 @@
+name: GTK
+
+on:
+  push:
+    tags-ignore:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate-metadata:
+    name: Validate desktop & AppStream
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y appstream desktop-file-utils
+
+      - name: Validate desktop entry
+        run: |
+          cp data/dev.corral.Corral.desktop.in /tmp/dev.corral.Corral.desktop
+          desktop-file-validate /tmp/dev.corral.Corral.desktop
+
+      - name: Validate AppStream metainfo
+        run: |
+          appstreamcli validate --no-net --explain \
+            data/dev.corral.Corral.metainfo.xml

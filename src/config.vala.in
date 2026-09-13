@@ -1,0 +1,6 @@
+namespace Corral {
+    namespace Config {
+        public const string VERSION = "@VERSION@";
+        public const string GHOSTTY_RESOURCES_DIR = "@GHOSTTY_RESOURCES_DIR@";
+    }
+}

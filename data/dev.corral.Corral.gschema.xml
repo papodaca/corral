@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="dev.corral.Corral" path="/dev/corral/Corral/">
+    <key name="font-size" type="i">
+      <default>10</default>
+      <range min="8" max="32"/>
+      <summary>Terminal font size</summary>
+    </key>
+    <key name="window-width" type="i">
+      <default>1100</default>
+      <range min="400" max="8000"/>
+      <summary>Window width</summary>
+    </key>
+    <key name="window-height" type="i">
+      <default>720</default>
+      <range min="300" max="8000"/>
+      <summary>Window height</summary>
+    </key>
+  </schema>
+</schemalist>

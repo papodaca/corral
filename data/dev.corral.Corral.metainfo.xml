@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.corral.Corral</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Corral</name>
+  <summary>GTK window for Herdr</summary>
+  <description>
+    <p>
+      Corral hosts a Ghostty terminal and runs Herdr inside it. Workspaces,
+      splits, and agent state stay in Herdr. Close the window to detach; the
+      Herdr server keeps running.
+    </p>
+  </description>
+
+  <developer id="dev.corral">
+    <name>papodaca</name>
+  </developer>
+
+  <url type="homepage">https://github.com/papodaca/corral</url>
+  <url type="bugtracker">https://github.com/papodaca/corral/issues</url>
+  <url type="vcs-browser">https://github.com/papodaca/corral</url>
+
+  <launchable type="desktop-id">dev.corral.Corral.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#986a44</color>
+    <color type="primary" scheme_preference="dark">#d4a373</color>
+  </branding>
+
+  <releases>
+    <release version="0.1.0" date="2026-09-12">
+      <description translate="no">
+        <p>
+          First GTK4 / libadwaita window that embeds libghostty and launches
+          Herdr as the child process.
+        </p>
+      </description>
+    </release>
+  </releases>
+</component>

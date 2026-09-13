@@ -1,0 +1,4 @@
+AppDir/
+builddir/
+.linuxdeploy-cache/
+*.AppImage

@@ -1,0 +1,8 @@
+/build/
+/builddir/
+/build-pkg/
+/third_party/zig-linux/
+/third_party/ghostty/
+*~
+*.swp
+.flatpak-builder/
