@@ -31,7 +31,7 @@
       "buildsystem": "simple",
       "only-arches": ["x86_64"],
       "build-commands": [
-        "mkdir -p /app/lib/zig-toolchain",
+        "mkdir -p /app/bin /app/lib/zig-toolchain",
         "cp -a . /app/lib/zig-toolchain/",
         "ln -s /app/lib/zig-toolchain/zig /app/bin/zig"
       ],
@@ -48,7 +48,7 @@
       "buildsystem": "simple",
       "only-arches": ["aarch64"],
       "build-commands": [
-        "mkdir -p /app/lib/zig-toolchain",
+        "mkdir -p /app/bin /app/lib/zig-toolchain",
         "cp -a . /app/lib/zig-toolchain/",
         "ln -s /app/lib/zig-toolchain/zig /app/bin/zig"
       ],
