@@ -8,7 +8,8 @@
 # Produces: Corral-$VERSION-$ARCH.AppImage in this directory
 # (ARCH is uname -m: x86_64 or aarch64).
 # Requires Ubuntu 26.04-class deps: meson, ninja, valac, pkg-config,
-# GTK4/libadwaita, librsvg2-bin, curl, file, patchelf, python3, xz-utils.
+# GTK4/libadwaita, libxml2, libpng, zlib, bzip2, librsvg2-bin, curl, file,
+# patchelf, python3, xz-utils.
 # Zig 0.15.2 is fetched by scripts/fetch-zig.sh.
 #
 # AppImages built on Ubuntu 26.04 target that glibc floor (GTK 4.22 / libadwaita 1.9).

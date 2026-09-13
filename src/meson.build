@@ -53,7 +53,6 @@ thread_dep = dependency ('threads')
 
 libghostty_dep = declare_dependency (
   include_directories: ghostty_inc,
-  sources: libghostty_built[0],
   dependencies: [
     libm,
     libdl,

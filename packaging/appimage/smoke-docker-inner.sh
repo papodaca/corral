@@ -13,6 +13,7 @@ apt-get install -y --no-install-recommends \
   meson ninja-build valac \
   python3 xz-utils \
   libgtk-4-dev libadwaita-1-dev \
+  libxml2-dev libpng-dev zlib1g-dev libbz2-dev \
   gobject-introspection \
   gir1.2-gtk-4.0 gir1.2-adw-1 \
   libglib2.0-bin librsvg2-bin librsvg2-common \
