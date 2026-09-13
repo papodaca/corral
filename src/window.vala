@@ -49,6 +49,8 @@ public class Corral.Window : Adw.ApplicationWindow {
         toolbar_view = new Adw.ToolbarView ();
         toolbar_view.add_top_bar (header);
         content = toolbar_view;
+        bind_property ("fullscreened", toolbar_view, "reveal-top-bars",
+                       BindingFlags.SYNC_CREATE | BindingFlags.INVERT_BOOLEAN);
 
         close_request.connect (() => {
             app_settings.window_width = get_width ();
