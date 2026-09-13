@@ -15,6 +15,12 @@ gtk_dep = dependency('gtk4', version: '>= 4.14')
 adw_dep = dependency('libadwaita-1', version: '>= 1.5')
 gio_dep = dependency('gio-2.0')
 
+# Ghostty is gitignored. Clone and patch before data/ and src/ look at it.
+run_command(
+  find_program('scripts/sync-ghostty.sh'),
+  check: true,
+)
+
 subdir('data')
 subdir('src')
 subdir('tests')

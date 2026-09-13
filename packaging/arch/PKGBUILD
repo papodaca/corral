@@ -48,6 +48,7 @@ pkgver() {
 
 build() {
   cd "${_repo_root}"
+  "${_repo_root}/scripts/sync-ghostty.sh"
   export ZIG="${srcdir}/zig-${CARCH}-linux-${_zigver}/zig"
   if [[ ! -x ${ZIG} ]]; then
     echo "Zig ${_zigver} missing at ${ZIG}" >&2

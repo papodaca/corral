@@ -48,6 +48,8 @@ chown -R builder:builder "${ROOT}"
 VERSION=$(flatpak_version)
 export ROOT VERSION
 sudo -u builder env HOME=/home/builder ROOT="${ROOT}" VERSION="${VERSION}" \
+  bash -euo pipefail "${ROOT}/scripts/sync-ghostty.sh"
+sudo -u builder env HOME=/home/builder ROOT="${ROOT}" VERSION="${VERSION}" \
   bash -euo pipefail <<'EOF'
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 flatpak install -y --user flathub \
