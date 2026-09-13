@@ -40,6 +40,7 @@ depends=(
   glib2
   gcc-libs
   hicolor-icon-theme
+  ghostty-shell-integration
 )
 
 pkgver() {
@@ -55,7 +56,9 @@ build() {
     exit 1
   fi
   if [[ ! -f build-pkg/build.ninja ]]; then
-    arch-meson . build-pkg
+    arch-meson . build-pkg -Dinstall_shell_integration=false
+  else
+    meson configure build-pkg -Dinstall_shell_integration=false
   fi
   meson compile -C build-pkg
 }
@@ -70,6 +73,7 @@ check() {
 
 package() {
   meson install -C "${_repo_root}/build-pkg" --destdir "${pkgdir}"
+  rm -rf "${pkgdir}/usr/share/ghostty/shell-integration"
   install -Dm644 "${_repo_root}/LICENSE" \
     "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

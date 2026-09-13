@@ -19,11 +19,13 @@ install_data(
   install_dir: get_option('datadir') / 'metainfo',
 )
 
-install_subdir(
-  meson.project_source_root () / 'third_party' / 'ghostty' / 'src' / 'shell-integration',
-  install_dir: get_option('datadir') / 'ghostty',
-  exclude_files: ['README.md'],
-)
+if get_option('install_shell_integration')
+  install_subdir(
+    meson.project_source_root () / 'third_party' / 'ghostty' / 'src' / 'shell-integration',
+    install_dir: get_option('datadir') / 'ghostty',
+    exclude_files: ['README.md'],
+  )
+endif
 
 icon_dir = get_option('datadir') / 'icons' / 'hicolor'
 install_data(

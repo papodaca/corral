@@ -1,0 +1,6 @@
+option(
+  'install_shell_integration',
+  type: 'boolean',
+  value: true,
+  description: 'Install Ghostty shell-integration scripts under datadir/ghostty',
+)
