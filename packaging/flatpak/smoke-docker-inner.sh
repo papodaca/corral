@@ -9,7 +9,7 @@ apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates curl gnupg xz-utils \
   flatpak flatpak-builder ostree elfutils \
-  appstream git sudo
+  appstream git sudo python3
 
 git config --global --add safe.directory "${ROOT}" 2>/dev/null || true
 
@@ -47,6 +47,31 @@ chown -R builder:builder "${ROOT}"
 
 VERSION=$(flatpak_version)
 export ROOT VERSION
+python3 - "${ROOT}/packaging/flatpak/dev.corral.Corral.json" \
+  "${ROOT}/packaging/flatpak/dev.corral.Corral.ci.json" \
+  "${VERSION}" <<'PY'
+import json
+import sys
+
+src, dst, ver = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(src, encoding='utf-8') as f:
+    data = json.load(f)
+for module in data['modules']:
+    if module.get('name') == 'corral':
+        opts = [
+            opt for opt in module.get('config-opts', [])
+            if not opt.startswith('-Dpackage_version=')
+        ]
+        opts.append(f'-Dpackage_version={ver}')
+        module['config-opts'] = opts
+        break
+else:
+    raise SystemExit('no corral module in Flatpak manifest')
+with open(dst, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+PY
+chown builder:builder "${ROOT}/packaging/flatpak/dev.corral.Corral.ci.json"
 sudo -u builder env HOME=/home/builder ROOT="${ROOT}" VERSION="${VERSION}" \
   bash -euo pipefail "${ROOT}/scripts/sync-ghostty.sh"
 sudo -u builder env HOME=/home/builder ROOT="${ROOT}" VERSION="${VERSION}" \
@@ -63,7 +88,7 @@ fi
 ostree --repo=repo config set core.min-free-space-percent 0
 ostree --repo=repo config set core.min-free-space-size 1MB
 flatpak-builder --user --force-clean --disable-rofiles-fuse --repo=repo build-dir \
-  dev.corral.Corral.json
+  dev.corral.Corral.ci.json
 EOF
 
 files_root="${ROOT}/packaging/flatpak/build-dir/files"

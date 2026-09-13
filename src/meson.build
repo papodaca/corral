@@ -1,5 +1,5 @@
 config_data = configuration_data ()
-config_data.set ('VERSION', meson.project_version ())
+config_data.set ('VERSION', app_version)
 config_data.set (
   'GHOSTTY_RESOURCES_DIR',
   get_option ('prefix') / get_option ('datadir') / 'ghostty',

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Print the package version.
-# Prefer a v* tag (CI GITHUB_REF, then tags on HEAD). Untagged builds get a snapshot.
+# Prefer a v* tag (CI GITHUB_REF, then tags on HEAD). Untagged builds are
+# snapshots based on the latest v* tag, or meson.build if there is no tag.
 #
 #   packaging/version.sh         # 0.1.0  or  0.1.0+git10.c4a070d
 #   packaging/version.sh --arch  # 0.1.0  or  0.1.0.r10.c4a070d
@@ -31,6 +32,11 @@ from_vtag() {
 
 ROOT=$(repo_root)
 
+if [[ -n ${CORRAL_VERSION:-} ]]; then
+  printf '%s\n' "${CORRAL_VERSION}"
+  exit 0
+fi
+
 base=$(sed -n "s/^[[:space:]]*version: '\([^']*\)'.*/\1/p" "${ROOT}/meson.build" | head -1)
 if [[ -z ${base} ]]; then
   base=0.1.0
@@ -58,6 +64,11 @@ while IFS= read -r t; do
     exit 0
   fi
 done < <(git -C "${ROOT}" tag --points-at HEAD 2>/dev/null || true)
+
+latest=$(git -C "${ROOT}" describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+if ver=$(from_vtag "${latest}"); then
+  base=${ver}
+fi
 
 count=$(git -C "${ROOT}" rev-list --count HEAD 2>/dev/null || echo 0)
 short=$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)

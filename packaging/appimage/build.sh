@@ -232,7 +232,8 @@ ZIG=$("${REPO_ROOT}/scripts/fetch-zig.sh")
 
 fetch_tooling
 
-meson setup "${BUILDDIR}" "${REPO_ROOT}" --prefix=/usr --buildtype=release
+meson setup "${BUILDDIR}" "${REPO_ROOT}" --prefix=/usr --buildtype=release \
+  -Dpackage_version="${VERSION}"
 meson compile -C "${BUILDDIR}"
 meson install -C "${BUILDDIR}" --destdir "${APPDIR}"
 glib-compile-schemas "${APPDIR}/usr/share/glib-2.0/schemas"

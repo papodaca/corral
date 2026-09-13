@@ -55,10 +55,15 @@ build() {
     echo "Zig ${_zigver} missing at ${ZIG}" >&2
     exit 1
   fi
+  _app_ver=$("${_repo_root}/packaging/version.sh")
   if [[ ! -f build-pkg/build.ninja ]]; then
-    arch-meson . build-pkg -Dinstall_shell_integration=false
+    arch-meson . build-pkg \
+      -Dinstall_shell_integration=false \
+      -Dpackage_version="${_app_ver}"
   else
-    meson configure build-pkg -Dinstall_shell_integration=false
+    meson setup --reconfigure build-pkg \
+      -Dinstall_shell_integration=false \
+      -Dpackage_version="${_app_ver}"
   fi
   meson compile -C build-pkg
 }

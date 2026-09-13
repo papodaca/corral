@@ -21,6 +21,14 @@ run_command(
   check: true,
 )
 
+app_version = get_option('package_version')
+if app_version == ''
+  app_version = run_command(
+    find_program('packaging/version.sh'),
+    check: true,
+  ).stdout().strip()
+endif
+
 subdir('data')
 subdir('src')
 subdir('tests')

@@ -4,3 +4,10 @@ option(
   value: true,
   description: 'Install Ghostty shell-integration scripts under datadir/ghostty',
 )
+
+option(
+  'package_version',
+  type: 'string',
+  value: '',
+  description: 'App version shown in About and Config.VERSION. Empty runs packaging/version.sh.',
+)
