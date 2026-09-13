@@ -39,6 +39,10 @@ depends=(
   libepoxy
   glib2
   gcc-libs
+  libxml2
+  libpng
+  zlib
+  bzip2
   hicolor-icon-theme
   ghostty-shell-integration
 )

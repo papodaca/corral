@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build libghostty (embedded runtime) and copy artifacts.
-# Usage: build-libghostty.sh GHOSTTY_SRC PREFIX STAMP_HEADER [SO_COPY]
+# Build libghostty (embedded runtime) as a static archive and copy artifacts.
+# Usage: build-libghostty.sh GHOSTTY_SRC PREFIX STAMP_HEADER [A_COPY]
 set -euo pipefail
 
 SRC=${1:?ghostty source dir}
@@ -56,11 +56,45 @@ mkdir -p "${PREFIX}"
     -p "${PREFIX}"
 )
 
-if [[ ! -f ${PREFIX}/lib/libghostty.so ]]; then
-  echo "libghostty.so missing after zig build" >&2
+if [[ ! -f ${PREFIX}/lib/libghostty.a ]]; then
+  echo "libghostty.a missing after zig build" >&2
   ls -la "${PREFIX}/lib" >&2 || true
   exit 1
 fi
+
+# glslang/spirv-cross were built with Zig's libc++. Fold that runtime
+# into the archive so gcc can link Corral without a system libc++.so.
+fold_cxx_runtime() {
+  local fat=$1
+  local cache=${ZIG_GLOBAL_CACHE_DIR:-${HOME}/.cache/zig}
+  local newest
+  newest() {
+    find "${cache}/o" -name "$1" -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-
+  }
+  local libcxx libcxxabi libunwind
+  libcxx=$(newest 'libc++.a')
+  libcxxabi=$(newest 'libc++abi.a')
+  libunwind=$(newest 'libunwind.a')
+  if [[ -z ${libcxx} || -z ${libcxxabi} ]]; then
+    echo "Zig libc++.a not in ${cache}/o; gcc link will need system libc++" >&2
+    return 0
+  fi
+  local out="${fat}.with-cxx.a"
+  rm -f "${out}"
+  {
+    printf 'CREATE %s\n' "${out}"
+    printf 'ADDLIB %s\n' "${fat}"
+    printf 'ADDLIB %s\n' "${libcxx}"
+    printf 'ADDLIB %s\n' "${libcxxabi}"
+    if [[ -n ${libunwind} ]]; then
+      printf 'ADDLIB %s\n' "${libunwind}"
+    fi
+    printf 'SAVE\nEND\n'
+  } | ar -M
+  mv -f "${out}" "${fat}"
+}
+
+fold_cxx_runtime "${PREFIX}/lib/libghostty.a"
 
 mkdir -p "${PREFIX}/share/ghostty"
 if [[ -d ${SRC}/src/shell-integration ]]; then
@@ -74,5 +108,5 @@ cat > "${STAMP}" <<'EOF'
 EOF
 
 if [[ $# -ge 4 ]]; then
-  cp -f "${PREFIX}/lib/libghostty.so" "${4}"
+  cp -f "${PREFIX}/lib/libghostty.a" "${4}"
 fi

@@ -17,7 +17,7 @@ ghostty_patch = meson.project_source_root () / 'patches' / 'ghostty-gtk-embed.pa
 
 libghostty_built = custom_target (
   'libghostty',
-  output: ['libghostty-built.h', 'libghostty.so'],
+  output: ['libghostty-built.h', 'libghostty.a'],
   command: [
     build_libghostty,
     ghostty_src,
@@ -32,21 +32,38 @@ libghostty_built = custom_target (
     ghostty_src / 'src' / 'apprt' / 'embedded.zig',
     ghostty_src / 'src' / 'renderer' / 'OpenGL.zig',
     ghostty_src / 'src' / 'build' / 'SharedDeps.zig',
+    ghostty_src / 'src' / 'build' / 'GhosttyLib.zig',
+    ghostty_src / 'build.zig',
   ],
   console: true,
-  install: true,
-  install_dir: [false, get_option ('libdir')],
+  install: false,
 )
 
 ghostty_inc = include_directories ('../third_party/ghostty/include')
 
+cc = meson.get_compiler ('c')
+libm = cc.find_library ('m')
+libdl = cc.find_library ('dl')
+libutil = cc.find_library ('util')
+libbz2 = cc.find_library ('bz2')
+libxml2 = cc.find_library ('xml2')
+libz = cc.find_library ('z')
+libpng = cc.find_library ('png')
+thread_dep = dependency ('threads')
+
 libghostty_dep = declare_dependency (
   include_directories: ghostty_inc,
-  link_args: [
-    '-L' + ghostty_prefix / 'lib',
-    '-lghostty',
-  ],
   sources: libghostty_built[0],
+  dependencies: [
+    libm,
+    libdl,
+    libutil,
+    libbz2,
+    libxml2,
+    libz,
+    libpng,
+    thread_dep,
+  ],
 )
 
 corral_resources = gnome.compile_resources (
@@ -87,8 +104,7 @@ executable (
     '--vapidir', meson.current_source_dir (),
     '--pkg', 'ghostty-widget',
   ],
-  install_rpath: '$ORIGIN/../' + get_option ('libdir'),
-  build_rpath: ghostty_prefix / 'lib',
+  link_whole: libghostty_built[1],
   install: true,
 )
 
@@ -101,7 +117,6 @@ ghostty_spike = executable (
     libghostty_dep,
   ],
   include_directories: [ghostty_inc, include_directories ('.')],
-  install_rpath: '$ORIGIN/../' + get_option ('libdir'),
-  build_rpath: ghostty_prefix / 'lib',
+  link_whole: libghostty_built[1],
   install: false,
 )
