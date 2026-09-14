@@ -231,7 +231,16 @@ write_clipboard_cb (void *surface_ud,
         clip = gtk_widget_get_primary_clipboard (GTK_WIDGET (self));
     }
     const char *text = "";
-    if (contents_len > 0 && contents != NULL && contents[0].data != NULL) {
+    for (size_t i = 0; i < contents_len; i++) {
+        if (contents[i].mime != NULL &&
+            g_strcmp0 (contents[i].mime, "text/plain") == 0 &&
+            contents[i].data != NULL) {
+            text = contents[i].data;
+            break;
+        }
+    }
+    if (text[0] == '\0' && contents_len > 0 && contents != NULL &&
+        contents[0].data != NULL) {
         text = contents[0].data;
     }
     gdk_clipboard_set_text (clip, text);
@@ -268,6 +277,163 @@ mods_from_gdk (GdkModifierType state)
     return mods;
 }
 
+static GdkEvent *
+current_event (GtkEventController *controller)
+{
+    return gtk_event_controller_get_current_event (controller);
+}
+
+static GdkEvent *
+current_key_event (GtkEventController *controller)
+{
+    GdkEvent *event = current_event (controller);
+    if (event == NULL) {
+        return NULL;
+    }
+    GdkEventType type = gdk_event_get_event_type (event);
+    if (type != GDK_KEY_PRESS && type != GDK_KEY_RELEASE) {
+        return NULL;
+    }
+    return event;
+}
+
+static ghostty_input_mods_e
+mods_from_controller (GtkEventController *controller, GdkModifierType state)
+{
+    GdkEvent *event = current_event (controller);
+    GdkDevice *device = NULL;
+    if (event != NULL) {
+        /* Event state can drop Control/Alt that XKB marked consumed.
+         * The device still has them, which is what Ghostty GTK uses. */
+        state = gdk_event_get_modifier_state (event);
+        device = gdk_event_get_device (event);
+        if (device != NULL) {
+            state |= gdk_device_get_modifier_state (device);
+        }
+    }
+    ghostty_input_mods_e mods = mods_from_gdk (state);
+    if (device != NULL && gdk_device_get_num_lock_state (device)) {
+        mods |= GHOSTTY_MODS_NUM;
+    }
+    return mods;
+}
+
+static ghostty_input_mods_e
+consumed_mods_from_controller (GtkEventController *controller)
+{
+    GdkEvent *event = current_key_event (controller);
+    if (event == NULL) {
+        return GHOSTTY_MODS_NONE;
+    }
+    return mods_from_gdk (gdk_key_event_get_consumed_modifiers (event));
+}
+
+static ghostty_input_mouse_button_e
+mouse_button_from_gdk (guint button)
+{
+    switch (button) {
+    case GDK_BUTTON_PRIMARY:
+        return GHOSTTY_MOUSE_LEFT;
+    case GDK_BUTTON_MIDDLE:
+        return GHOSTTY_MOUSE_MIDDLE;
+    case GDK_BUTTON_SECONDARY:
+        return GHOSTTY_MOUSE_RIGHT;
+    case 4:
+        return GHOSTTY_MOUSE_FOUR;
+    case 5:
+        return GHOSTTY_MOUSE_FIVE;
+    case 6:
+        return GHOSTTY_MOUSE_SIX;
+    case 7:
+        return GHOSTTY_MOUSE_SEVEN;
+    case 8:
+        return GHOSTTY_MOUSE_EIGHT;
+    case 9:
+        return GHOSTTY_MOUSE_NINE;
+    case 10:
+        return GHOSTTY_MOUSE_TEN;
+    case 11:
+        return GHOSTTY_MOUSE_ELEVEN;
+    default:
+        return GHOSTTY_MOUSE_UNKNOWN;
+    }
+}
+
+static uint32_t
+unshifted_codepoint (GtkWidget *widget,
+                     GtkEventController *controller,
+                     guint keycode)
+{
+    GdkEvent *event = current_key_event (controller);
+    if (event == NULL) {
+        return 0;
+    }
+    GdkDisplay *display = gtk_widget_get_display (widget);
+    guint layout = gdk_key_event_get_layout (event);
+    GdkKeymapKey *keys = NULL;
+    guint *keyvals = NULL;
+    int n_entries = 0;
+    if (!gdk_display_map_keycode (display, keycode, &keys, &keyvals, &n_entries)) {
+        return 0;
+    }
+    uint32_t result = 0;
+    for (int i = 0; i < n_entries; i++) {
+        if (keys[i].group == (int) layout && keys[i].level == 0) {
+            result = gdk_keyval_to_unicode (keyvals[i]);
+            break;
+        }
+    }
+    g_free (keys);
+    g_free (keyvals);
+    return result;
+}
+
+static uint32_t
+unshifted_or_lower (GtkWidget *widget,
+                    GtkEventController *controller,
+                    guint keyval,
+                    guint keycode)
+{
+    uint32_t unshifted = unshifted_codepoint (widget, controller, keycode);
+    if (unshifted != 0) {
+        return unshifted;
+    }
+    return gdk_keyval_to_unicode (gdk_keyval_to_lower (keyval));
+}
+
+static gboolean
+send_key (CorralGhostty *self,
+          GtkEventControllerKey *controller,
+          ghostty_input_action_e action,
+          guint keyval,
+          guint keycode,
+          GdkModifierType state)
+{
+    if (self->surface == NULL) {
+        return FALSE;
+    }
+
+    GtkEventController *ec = GTK_EVENT_CONTROLLER (controller);
+    gunichar ch = gdk_keyval_to_unicode (keyval);
+    char text[8] = { 0 };
+    /* Control bytes belong to the encoder. Printable utf8 is still
+     * passed, including with Ctrl held, matching Ghostty GTK. */
+    if (action == GHOSTTY_ACTION_PRESS && ch != 0 && ch >= 0x20) {
+        g_unichar_to_utf8 (ch, text);
+    }
+
+    ghostty_input_key_s event = {
+        .action = action,
+        .mods = mods_from_controller (ec, state),
+        .consumed_mods = consumed_mods_from_controller (ec),
+        .keycode = keycode,
+        .text = text[0] != 0 ? text : NULL,
+        .unshifted_codepoint = unshifted_or_lower (GTK_WIDGET (self), ec, keyval, keycode),
+        .composing = false,
+    };
+    return ghostty_surface_key (self->surface, event);
+}
+
 static gboolean
 on_key_pressed (GtkEventControllerKey *controller,
                 guint keyval,
@@ -275,28 +441,8 @@ on_key_pressed (GtkEventControllerKey *controller,
                 GdkModifierType state,
                 gpointer user_data)
 {
-    CorralGhostty *self = CORRAL_GHOSTTY (user_data);
-    (void) controller;
-    if (self->surface == NULL) {
-        return FALSE;
-    }
-
-    gunichar ch = gdk_keyval_to_unicode (keyval);
-    char text[8] = { 0 };
-    if (ch != 0 && ch >= 32) {
-        g_unichar_to_utf8 (ch, text);
-    }
-
-    ghostty_input_key_s event = {
-        .action = GHOSTTY_ACTION_PRESS,
-        .mods = mods_from_gdk (state),
-        .consumed_mods = GHOSTTY_MODS_NONE,
-        .keycode = keycode,
-        .text = text[0] != 0 ? text : NULL,
-        .unshifted_codepoint = gdk_keyval_to_unicode (gdk_keyval_to_upper (keyval)),
-        .composing = false,
-    };
-    return ghostty_surface_key (self->surface, event);
+    return send_key (CORRAL_GHOSTTY (user_data), controller,
+                     GHOSTTY_ACTION_PRESS, keyval, keycode, state);
 }
 
 static gboolean
@@ -306,22 +452,8 @@ on_key_released (GtkEventControllerKey *controller,
                  GdkModifierType state,
                  gpointer user_data)
 {
-    CorralGhostty *self = CORRAL_GHOSTTY (user_data);
-    (void) controller;
-    (void) keyval;
-    if (self->surface == NULL) {
-        return FALSE;
-    }
-    ghostty_input_key_s event = {
-        .action = GHOSTTY_ACTION_RELEASE,
-        .mods = mods_from_gdk (state),
-        .consumed_mods = GHOSTTY_MODS_NONE,
-        .keycode = keycode,
-        .text = NULL,
-        .unshifted_codepoint = 0,
-        .composing = false,
-    };
-    return ghostty_surface_key (self->surface, event);
+    return send_key (CORRAL_GHOSTTY (user_data), controller,
+                     GHOSTTY_ACTION_RELEASE, keyval, keycode, state);
 }
 
 static void
@@ -331,13 +463,45 @@ on_motion (GtkEventControllerMotion *controller,
            gpointer user_data)
 {
     CorralGhostty *self = CORRAL_GHOSTTY (user_data);
-    (void) controller;
     if (self->surface == NULL) {
         return;
     }
-    GdkModifierType state = gtk_event_controller_get_current_event_state (
-        GTK_EVENT_CONTROLLER (controller));
-    ghostty_surface_mouse_pos (self->surface, x, y, (int) mods_from_gdk (state));
+    GtkEventController *ec = GTK_EVENT_CONTROLLER (controller);
+    GdkModifierType state = gtk_event_controller_get_current_event_state (ec);
+    ghostty_surface_mouse_pos (self->surface, x, y,
+                               (int) mods_from_controller (ec, state));
+}
+
+static void
+on_leave (GtkEventControllerMotion *controller, gpointer user_data)
+{
+    CorralGhostty *self = CORRAL_GHOSTTY (user_data);
+    if (self->surface == NULL) {
+        return;
+    }
+    GtkEventController *ec = GTK_EVENT_CONTROLLER (controller);
+    GdkModifierType state = gtk_event_controller_get_current_event_state (ec);
+    ghostty_surface_mouse_pos (self->surface, -1, -1,
+                               (int) mods_from_controller (ec, state));
+}
+
+static void
+send_click (CorralGhostty *self,
+            GtkGestureClick *gesture,
+            double x,
+            double y,
+            ghostty_input_mouse_state_e action)
+{
+    if (self->surface == NULL) {
+        return;
+    }
+    GtkEventController *ec = GTK_EVENT_CONTROLLER (gesture);
+    guint button = gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture));
+    GdkModifierType state = gtk_event_controller_get_current_event_state (ec);
+    ghostty_input_mods_e mods = mods_from_controller (ec, state);
+    ghostty_surface_mouse_pos (self->surface, x, y, (int) mods);
+    ghostty_surface_mouse_button (self->surface, action,
+                                  mouse_button_from_gdk (button), (int) mods);
 }
 
 static void
@@ -347,24 +511,9 @@ on_click_pressed (GtkGestureClick *gesture,
                   double y,
                   gpointer user_data)
 {
-    CorralGhostty *self = CORRAL_GHOSTTY (user_data);
     (void) n_press;
-    if (self->surface == NULL) {
-        return;
-    }
-    gtk_widget_grab_focus (GTK_WIDGET (self));
-    guint button = gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture));
-    GdkModifierType state = gtk_event_controller_get_current_event_state (
-        GTK_EVENT_CONTROLLER (gesture));
-    ghostty_surface_mouse_pos (self->surface, x, y, (int) mods_from_gdk (state));
-    ghostty_input_mouse_button_e gb = GHOSTTY_MOUSE_LEFT;
-    if (button == GDK_BUTTON_MIDDLE) {
-        gb = GHOSTTY_MOUSE_MIDDLE;
-    } else if (button == GDK_BUTTON_SECONDARY) {
-        gb = GHOSTTY_MOUSE_RIGHT;
-    }
-    ghostty_surface_mouse_button (self->surface, GHOSTTY_MOUSE_PRESS, gb,
-                                  (int) mods_from_gdk (state));
+    gtk_widget_grab_focus (GTK_WIDGET (user_data));
+    send_click (CORRAL_GHOSTTY (user_data), gesture, x, y, GHOSTTY_MOUSE_PRESS);
 }
 
 static void
@@ -374,23 +523,8 @@ on_click_released (GtkGestureClick *gesture,
                    double y,
                    gpointer user_data)
 {
-    CorralGhostty *self = CORRAL_GHOSTTY (user_data);
     (void) n_press;
-    if (self->surface == NULL) {
-        return;
-    }
-    guint button = gtk_gesture_single_get_current_button (GTK_GESTURE_SINGLE (gesture));
-    GdkModifierType state = gtk_event_controller_get_current_event_state (
-        GTK_EVENT_CONTROLLER (gesture));
-    ghostty_surface_mouse_pos (self->surface, x, y, (int) mods_from_gdk (state));
-    ghostty_input_mouse_button_e gb = GHOSTTY_MOUSE_LEFT;
-    if (button == GDK_BUTTON_MIDDLE) {
-        gb = GHOSTTY_MOUSE_MIDDLE;
-    } else if (button == GDK_BUTTON_SECONDARY) {
-        gb = GHOSTTY_MOUSE_RIGHT;
-    }
-    ghostty_surface_mouse_button (self->surface, GHOSTTY_MOUSE_RELEASE, gb,
-                                  (int) mods_from_gdk (state));
+    send_click (CORRAL_GHOSTTY (user_data), gesture, x, y, GHOSTTY_MOUSE_RELEASE);
 }
 
 static void
@@ -606,6 +740,16 @@ write_font_overlay (CorralGhostty *self, GError **error)
     g_hash_table_unref (seen);
     g_string_append (body, "font-family = monospace\n");
     g_string_append_printf (body, "font-size = %d\n", (int) (self->font_size + 0.5f));
+    /* Herdr owns multiplexer chords (prefix+c, and so on). Ghostty's
+     * default binds would eat ctrl+shift+t, alt+1, … before they reach
+     * the PTY. Keep clipboard chords so the host window can still copy. */
+    g_string_append (body, "keybind = clear\n");
+    g_string_append (body, "keybind = copy=copy_to_clipboard\n");
+    g_string_append (body, "keybind = paste=paste_from_clipboard\n");
+    g_string_append (body, "keybind = ctrl+shift+c=copy_to_clipboard\n");
+    g_string_append (body, "keybind = ctrl+shift+v=paste_from_clipboard\n");
+    g_string_append (body, "keybind = shift+insert=paste_from_selection\n");
+    g_string_append (body, "keybind = ctrl+insert=copy_to_clipboard\n");
 
     if (self->config_overlay == NULL) {
         int fd = g_file_open_tmp ("corral-ghostty-XXXXXX.config", &self->config_overlay, error);
@@ -649,6 +793,25 @@ apply_font_size (CorralGhostty *self)
     ghostty_app_update_config (self->app, self->config);
     ghostty_surface_update_config (self->surface, self->config);
     gtk_gl_area_queue_render (GTK_GL_AREA (self));
+}
+
+static void
+apply_surface_geometry (CorralGhostty *self)
+{
+    if (self->surface == NULL) {
+        return;
+    }
+    int scale = gtk_widget_get_scale_factor (GTK_WIDGET (self));
+    int width = gtk_widget_get_width (GTK_WIDGET (self)) * scale;
+    int height = gtk_widget_get_height (GTK_WIDGET (self)) * scale;
+    if (width < 1) {
+        width = 800 * scale;
+    }
+    if (height < 1) {
+        height = 600 * scale;
+    }
+    ghostty_surface_set_size (self->surface, (uint32_t) width, (uint32_t) height);
+    ghostty_surface_set_content_scale (self->surface, scale, scale);
 }
 
 static gboolean
@@ -699,16 +862,6 @@ create_surface (CorralGhostty *self, GError **error)
         return FALSE;
     }
 
-    int scale = gtk_widget_get_scale_factor (GTK_WIDGET (self));
-    int width = gtk_widget_get_width (GTK_WIDGET (self)) * scale;
-    int height = gtk_widget_get_height (GTK_WIDGET (self)) * scale;
-    if (width < 1) {
-        width = 800 * scale;
-    }
-    if (height < 1) {
-        height = 600 * scale;
-    }
-
     ghostty_surface_config_s surf = ghostty_surface_config_new ();
     surf.platform_tag = GHOSTTY_PLATFORM_GTK;
     surf.platform.gtk.gl_area = self;
@@ -727,12 +880,8 @@ create_surface (CorralGhostty *self, GError **error)
         return FALSE;
     }
 
-    ghostty_surface_set_size (self->surface, (uint32_t) width, (uint32_t) height);
-    ghostty_surface_set_content_scale (
-        self->surface,
-        gtk_widget_get_scale_factor (GTK_WIDGET (self)),
-        gtk_widget_get_scale_factor (GTK_WIDGET (self)));
     ghostty_surface_set_focus (self->surface, true);
+    apply_surface_geometry (self);
     queue_tick (self);
     return TRUE;
 }
@@ -809,12 +958,10 @@ on_render (GtkGLArea *area, GdkGLContext *context)
     int height = gtk_widget_get_height (GTK_WIDGET (area)) * scale;
 
     ensure_surface (self);
+    apply_surface_geometry (self);
 
     if (width > 0 && height > 0) {
         glViewport (0, 0, width, height);
-        if (self->surface != NULL) {
-            ghostty_surface_set_size (self->surface, (uint32_t) width, (uint32_t) height);
-        }
     }
 
     if (self->surface != NULL && !self->gpu_dropped) {
@@ -836,9 +983,15 @@ on_resize (GtkGLArea *area, int width, int height)
     }
 
     ensure_surface (self);
-    if (self->surface != NULL) {
-        ghostty_surface_set_size (self->surface, (uint32_t) width, (uint32_t) height);
-    }
+    apply_surface_geometry (self);
+}
+
+static void
+on_scale_factor (GObject *object, GParamSpec *pspec, gpointer user_data)
+{
+    (void) pspec;
+    (void) user_data;
+    apply_surface_geometry (CORRAL_GHOSTTY (object));
 }
 
 static void
@@ -959,6 +1112,7 @@ corral_ghostty_init (CorralGhostty *self)
     g_signal_connect (self, "unrealize", G_CALLBACK (on_unrealize), NULL);
     g_signal_connect (self, "render", G_CALLBACK (on_render), NULL);
     g_signal_connect (self, "resize", G_CALLBACK (on_resize), NULL);
+    g_signal_connect (self, "notify::scale-factor", G_CALLBACK (on_scale_factor), NULL);
 
     GtkEventController *keys = GTK_EVENT_CONTROLLER (gtk_event_controller_key_new ());
     gtk_event_controller_set_propagation_phase (keys, GTK_PHASE_CAPTURE);
@@ -968,6 +1122,7 @@ corral_ghostty_init (CorralGhostty *self)
 
     GtkEventController *motion = GTK_EVENT_CONTROLLER (gtk_event_controller_motion_new ());
     g_signal_connect (motion, "motion", G_CALLBACK (on_motion), self);
+    g_signal_connect (motion, "leave", G_CALLBACK (on_leave), self);
     gtk_widget_add_controller (GTK_WIDGET (self), motion);
 
     GtkGesture *click = gtk_gesture_click_new ();

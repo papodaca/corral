@@ -13,7 +13,7 @@ Corral looks for `herdr` on `PATH`. If it is missing, the window says so and off
 curl -fsSL https://herdr.dev/install.sh | sh
 ```
 
-Install details are at [herdr.dev/docs/install](https://herdr.dev/docs/install/). `Ctrl+Q` quits Corral. That detaches too. It does not stop the server.
+Install details are at [herdr.dev/docs/install](https://herdr.dev/docs/install/). Close the window to detach. That does not stop the server.
 
 ## Build from source
 
@@ -89,6 +89,8 @@ meson test -C build --print-errorlogs
 | Ctrl+? | Shortcuts overlay |
 
 Reconnect is in the header menu. Font size is also in preferences (8-32). Window size is remembered on close.
+
+Those chords reach Corral only when Herdr is not eating the key, for example the missing-Herdr page. While a session is attached, keys go to Herdr. Close the window from the header menu if you want to detach.
 
 ## License
 

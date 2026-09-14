@@ -52,6 +52,31 @@ public class Corral.Window : Adw.ApplicationWindow {
         bind_property ("fullscreened", toolbar_view, "reveal-top-bars",
                        BindingFlags.SYNC_CREATE | BindingFlags.INVERT_BOOLEAN);
 
+        var host_keys = new Gtk.ShortcutController ();
+        host_keys.propagation_phase = Gtk.PropagationPhase.BUBBLE;
+        host_keys.add_shortcut (new Gtk.Shortcut (
+            new Gtk.KeyvalTrigger (Gdk.Key.q, Gdk.ModifierType.CONTROL_MASK),
+            new Gtk.NamedAction ("app.quit")));
+        host_keys.add_shortcut (new Gtk.Shortcut (
+            new Gtk.KeyvalTrigger (Gdk.Key.comma, Gdk.ModifierType.CONTROL_MASK),
+            new Gtk.NamedAction ("win.preferences")));
+        host_keys.add_shortcut (new Gtk.Shortcut (
+            new Gtk.KeyvalTrigger (Gdk.Key.plus, Gdk.ModifierType.CONTROL_MASK),
+            new Gtk.NamedAction ("win.font-increase")));
+        host_keys.add_shortcut (new Gtk.Shortcut (
+            new Gtk.KeyvalTrigger (Gdk.Key.equal, Gdk.ModifierType.CONTROL_MASK),
+            new Gtk.NamedAction ("win.font-increase")));
+        host_keys.add_shortcut (new Gtk.Shortcut (
+            new Gtk.KeyvalTrigger (Gdk.Key.minus, Gdk.ModifierType.CONTROL_MASK),
+            new Gtk.NamedAction ("win.font-decrease")));
+        host_keys.add_shortcut (new Gtk.Shortcut (
+            new Gtk.KeyvalTrigger (Gdk.Key.question, Gdk.ModifierType.CONTROL_MASK),
+            new Gtk.NamedAction ("win.show-help-overlay")));
+        host_keys.add_shortcut (new Gtk.Shortcut (
+            new Gtk.KeyvalTrigger (Gdk.Key.F11, 0),
+            new Gtk.NamedAction ("win.fullscreen")));
+        add_controller (host_keys);
+
         close_request.connect (() => {
             app_settings.window_width = get_width ();
             app_settings.window_height = get_height ();

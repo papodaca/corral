@@ -12,12 +12,8 @@ public class Corral.Application : Adw.Application {
             { "quit", on_quit },
         };
         add_action_entries (entries, this);
-        set_accels_for_action ("app.quit", { "<primary>q" });
-        set_accels_for_action ("win.preferences", { "<primary>comma" });
-        set_accels_for_action ("win.font-increase", { "<primary>plus", "<primary>equal" });
-        set_accels_for_action ("win.font-decrease", { "<primary>minus" });
-        set_accels_for_action ("win.fullscreen", { "F11" });
-        set_accels_for_action ("win.show-help-overlay", { "<primary>question" });
+        /* Window-capture accels would eat chords before Herdr. Host
+         * shortcuts run in bubble phase on the window instead. */
     }
 
     protected override void activate () {
