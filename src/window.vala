@@ -88,6 +88,11 @@ public class Corral.Window : Adw.ApplicationWindow {
                     terminal.font_size = app_settings.font_size;
                 }
             });
+            app_settings.settings.changed["font-family"].connect (() => {
+                if (terminal != null) {
+                    terminal.font_family = app_settings.font_family;
+                }
+            });
         }
 
         show_session ();
@@ -160,6 +165,7 @@ public class Corral.Window : Adw.ApplicationWindow {
         terminal.command = path;
         terminal.cwd = Environment.get_current_dir ();
         terminal.font_size = AppSettings.get_default ().font_size;
+        terminal.font_family = AppSettings.get_default ().font_family;
         terminal.title_changed.connect ((term_title) => {
             Idle.add (() => {
                 title = term_title != "" ? term_title : "Corral";

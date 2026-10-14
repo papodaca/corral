@@ -7,6 +7,7 @@ namespace Corral {
 
         public string command { get; set; }
         public string? cwd { get; set; }
+        public string font_family { get; set; }
         public float font_size { get; set; }
 
         public bool start () throws GLib.Error;

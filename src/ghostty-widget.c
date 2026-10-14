@@ -13,6 +13,7 @@ struct _CorralGhostty {
 
     char *command;
     char *cwd;
+    char *font_family;
     float font_size;
     char *config_overlay;
 
@@ -30,6 +31,7 @@ enum {
     PROP_0,
     PROP_COMMAND,
     PROP_CWD,
+    PROP_FONT_FAMILY,
     PROP_FONT_SIZE,
     N_PROPS
 };
@@ -663,6 +665,10 @@ append_font_family (GString *body, GtkWidget *widget, GHashTable *seen, const ch
     if (family == NULL || family[0] == '\0') {
         return;
     }
+    /* A newline would add extra Ghostty keys. Settings already strips these. */
+    if (strchr (family, '\n') != NULL || strchr (family, '\r') != NULL) {
+        return;
+    }
     char *key = g_ascii_strdown (family, -1);
     if (g_hash_table_contains (seen, key)) {
         g_free (key);
@@ -720,6 +726,7 @@ write_font_overlay (CorralGhostty *self, GError **error)
     g_string_append (body, "font-family =\n");
     GHashTable *seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
 
+    append_font_family (body, GTK_WIDGET (self), seen, self->font_family);
     append_font_family (body, GTK_WIDGET (self), seen, "Fira Code");
     char *desktop = desktop_monospace_family ();
     append_font_family (body, GTK_WIDGET (self), seen, desktop);
@@ -781,7 +788,7 @@ load_embed_config (CorralGhostty *self)
 }
 
 static void
-apply_font_size (CorralGhostty *self)
+apply_font (CorralGhostty *self)
 {
     if (self->surface == NULL || self->app == NULL) {
         return;
@@ -1008,6 +1015,9 @@ corral_ghostty_get_property (GObject *object,
     case PROP_CWD:
         g_value_set_string (value, self->cwd);
         break;
+    case PROP_FONT_FAMILY:
+        g_value_set_string (value, self->font_family);
+        break;
     case PROP_FONT_SIZE:
         g_value_set_float (value, self->font_size);
         break;
@@ -1033,9 +1043,19 @@ corral_ghostty_set_property (GObject *object,
         g_free (self->cwd);
         self->cwd = g_value_dup_string (value);
         break;
+    case PROP_FONT_FAMILY: {
+        const char *next = g_value_get_string (value);
+        if (g_strcmp0 (self->font_family, next) == 0) {
+            break;
+        }
+        g_free (self->font_family);
+        self->font_family = g_strdup (next);
+        apply_font (self);
+        break;
+    }
     case PROP_FONT_SIZE:
         self->font_size = g_value_get_float (value);
-        apply_font_size (self);
+        apply_font (self);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1054,6 +1074,7 @@ corral_ghostty_dispose (GObject *object)
     g_clear_pointer (&self->config_overlay, g_free);
     g_clear_pointer (&self->command, g_free);
     g_clear_pointer (&self->cwd, g_free);
+    g_clear_pointer (&self->font_family, g_free);
     G_OBJECT_CLASS (corral_ghostty_parent_class)->dispose (object);
 }
 
@@ -1071,6 +1092,9 @@ corral_ghostty_class_init (CorralGhosttyClass *klass)
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     properties[PROP_CWD] = g_param_spec_string (
         "cwd", NULL, NULL, NULL,
+        G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    properties[PROP_FONT_FAMILY] = g_param_spec_string (
+        "font-family", NULL, NULL, NULL,
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
     properties[PROP_FONT_SIZE] = g_param_spec_float (
         "font-size", NULL, NULL, 8.0, 48.0, 10.0,
@@ -1176,6 +1200,20 @@ corral_ghostty_set_cwd (CorralGhostty *self, const char *cwd)
 {
     g_return_if_fail (CORRAL_IS_GHOSTTY (self));
     g_object_set (self, "cwd", cwd, NULL);
+}
+
+const char *
+corral_ghostty_get_font_family (CorralGhostty *self)
+{
+    g_return_val_if_fail (CORRAL_IS_GHOSTTY (self), NULL);
+    return self->font_family;
+}
+
+void
+corral_ghostty_set_font_family (CorralGhostty *self, const char *font_family)
+{
+    g_return_if_fail (CORRAL_IS_GHOSTTY (self));
+    g_object_set (self, "font-family", font_family, NULL);
 }
 
 float

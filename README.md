@@ -30,11 +30,10 @@ sudo pacman -S meson ninja vala pkgconf gtk4 libadwaita libepoxy git gcc libxml2
 
 ```
 meson setup build
-meson compile -C build
-meson devenv -C build ./src/corral
+meson compile -C build run
 ```
 
-`meson devenv` points GSettings at the uninstalled schema and `GHOSTTY_RESOURCES_DIR` at `/usr/share/ghostty`. Run `build/src/corral` without that and you get default settings plus whatever Ghostty resources exist under the configured prefix.
+`ninja -C build run` is the same target. It compiles, then starts `corral` with `GSETTINGS_SCHEMA_DIR` pointed at `build/data` and `GHOSTTY_RESOURCES_DIR` at `/usr/share/ghostty`. Running `build/src/corral` by itself uses the installed schema, which will not have keys added since the last install.
 
 To install:
 
@@ -88,7 +87,7 @@ meson test -C build --print-errorlogs
 | Ctrl+- | Smaller font |
 | Ctrl+? | Shortcuts overlay |
 
-Reconnect is in the header menu. Font size is also in preferences (8-32). Window size is remembered on close.
+Reconnect is in the header menu. Font family and size are in preferences (size 8-32). An empty family uses Fira Code, then the desktop monospace font. Window size is remembered on close.
 
 Those chords reach Corral only when Herdr is not eating the key, for example the missing-Herdr page. While a session is attached, keys go to Herdr. Close the window from the header menu if you want to detach.
 

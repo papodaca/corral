@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
   <schema id="dev.corral.Corral" path="/dev/corral/Corral/">
+    <key name="font-family" type="s">
+      <default>''</default>
+      <summary>Terminal font family</summary>
+      <description>Empty uses the built-in list, starting with Fira Code and the desktop monospace font.</description>
+    </key>
     <key name="font-size" type="i">
       <default>10</default>
       <range min="8" max="32"/>

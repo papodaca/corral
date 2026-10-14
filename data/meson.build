@@ -38,7 +38,7 @@ install_data(
 )
 
 glib_compile_schemas = find_program('glib-compile-schemas')
-custom_target(
+gschemas = custom_target(
   'gschemas.compiled',
   input: gschema_file,
   output: 'gschemas.compiled',

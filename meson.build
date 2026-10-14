@@ -33,10 +33,18 @@ subdir('data')
 subdir('src')
 subdir('tests')
 
-meson.add_devenv({
-  'GSETTINGS_SCHEMA_DIR': meson.project_build_root () / 'data',
-  'GHOSTTY_RESOURCES_DIR': '/usr/share/ghostty',
-})
+dev_env = environment()
+dev_env.set('GSETTINGS_SCHEMA_DIR', meson.project_build_root() / 'data')
+dev_env.set('GHOSTTY_RESOURCES_DIR', '/usr/share/ghostty')
+
+meson.add_devenv(dev_env)
+
+run_target(
+  'run',
+  command: [find_program('scripts/dev-run.sh'), corral_exe],
+  depends: [gschemas],
+  env: dev_env,
+)
 
 gnome.post_install(
   glib_compile_schemas: true,

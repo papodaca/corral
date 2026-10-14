@@ -12,6 +12,8 @@ const char *corral_ghostty_get_command (CorralGhostty *self);
 void corral_ghostty_set_command (CorralGhostty *self, const char *command);
 const char *corral_ghostty_get_cwd (CorralGhostty *self);
 void corral_ghostty_set_cwd (CorralGhostty *self, const char *cwd);
+const char *corral_ghostty_get_font_family (CorralGhostty *self);
+void corral_ghostty_set_font_family (CorralGhostty *self, const char *font_family);
 float corral_ghostty_get_font_size (CorralGhostty *self);
 void corral_ghostty_set_font_size (CorralGhostty *self, float font_size);
 gboolean corral_ghostty_start (CorralGhostty *self, GError **error);

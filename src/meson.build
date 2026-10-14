@@ -94,7 +94,7 @@ app_sources = files (
   'ghostty-widget.c',
 )
 
-executable (
+corral_exe = executable (
   'corral',
   app_sources,
   config_vala,
