@@ -45,9 +45,26 @@ fi
 
 ZIG_BIN=$(find_zig)
 mkdir -p "${PREFIX}"
+
+# zig build defaults to the host CPU. A runner with AVX-512 FP16 then emits
+# vmovw, and the binary SIGILLs on CPUs that lack it (Zen 4 included).
+case $(uname -m) in
+  x86_64)
+    zig_cpu=x86_64_v3
+    ;;
+  aarch64 | arm64)
+    zig_cpu=baseline
+    ;;
+  *)
+    echo "No portable Zig CPU pin for $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
 (
   cd "${SRC}"
   "${ZIG_BIN}" build \
+    -Dcpu="${zig_cpu}" \
     -Dapp-runtime=none \
     -Doptimize=ReleaseFast \
     -Demit-exe=false \
