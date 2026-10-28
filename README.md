@@ -17,16 +17,16 @@ Install details are at [herdr.dev/docs/install](https://herdr.dev/docs/install/)
 
 ## Build from source
 
-Needs Meson 1.0+, Vala, GTK 4.14+, libadwaita 1.5+, libepoxy, and Zig 0.15.2 (Ghostty's compiler). Configure clones Ghostty v1.3.1 into `third_party/ghostty` and applies `patches/ghostty-gtk-embed.patch`. libghostty is linked statically into `corral`.
+Needs Meson 1.0+, Vala, GTK 4.14+, libadwaita 1.5+, libepoxy, and Zig 0.17.0 (Ghostty's compiler). Configure clones Ghostty v1.4.0 into `third_party/ghostty` and applies `patches/ghostty-gtk-embed.patch`. libghostty is linked statically into `corral`.
 
 On Arch / CachyOS:
 
 ```
-sudo pacman -S meson ninja vala pkgconf gtk4 libadwaita libepoxy git gcc libxml2 libpng zlib bzip2
+sudo pacman -S meson ninja vala pkgconf gtk4 libadwaita libepoxy libglvnd git gcc libxml2 libpng zlib bzip2
 ./scripts/fetch-zig.sh
 ```
 
-`fetch-zig.sh` puts Zig 0.15.2 in `third_party/zig-linux`. A matching `zig` on `PATH` works too.
+`fetch-zig.sh` puts Zig 0.17.0 in `third_party/zig-linux`. A matching `zig` on `PATH` works too.
 
 ```
 meson setup build

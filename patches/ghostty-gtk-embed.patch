@@ -1,36 +1,47 @@
 diff --git a/build.zig b/build.zig
-index f9d861b..312210b 100644
+index 85a91fb..cef661c 100644
 --- a/build.zig
 +++ b/build.zig
-@@ -91,11 +91,8 @@ pub fn build(b: *std.Build) !void {
-         check_step.dependOn(dist.install_step);
-     }
+@@ -220,19 +220,29 @@ pub fn build(b: *std.Build) !void {
+         // This is NOT libghostty (even though its named that for historical
+         // reasons). It is just the glue between Ghostty GUI on macOS and
+         // the full Ghostty GUI core.
+-        const lib_shared = try buildpkg.GhosttyLib.initShared(b, &deps);
++        // Corral links the static archive into a PIE GTK binary. Skip the
++        // shared library on Linux: a libghostty.so next to the system
++        // Ghostty package is the wrong file to pick up at runtime, and
++        // building it doubles the compile.
+         const lib_static = try buildpkg.GhosttyLib.initStatic(b, &deps);
++        const lib_shared: ?buildpkg.GhosttyLib = shared: {
++            if (config.target.result.os.tag.isDarwin() or
++                config.target.result.os.tag == .windows)
++            {
++                break :shared try buildpkg.GhosttyLib.initShared(b, &deps);
++            }
++            break :shared null;
++        };
  
--    // libghostty (internal, big)
--    const libghostty_shared = try buildpkg.GhosttyLib.initShared(
--        b,
--        &deps,
--    );
-+    // libghostty (internal, big). Shared is unused by Corral; a .so
-+    // named libghostty.so would collide with a system Ghostty package.
-     const libghostty_static = try buildpkg.GhosttyLib.initStatic(
-         b,
-         &deps,
-@@ -139,8 +136,7 @@ pub fn build(b: *std.Build) !void {
          // We shouldn't have this guard but we don't currently
          // build on macOS this way ironically so we need to fix that.
          if (!config.target.result.os.tag.isDarwin()) {
--            libghostty_shared.installHeader(); // Only need one header
--            libghostty_shared.install("libghostty.so");
-+            libghostty_static.installHeader();
-             libghostty_static.install("libghostty.a");
+-            lib_shared.installHeader(); // Only need one header
++            lib_static.installHeader();
+             if (config.target.result.os.tag == .windows) {
+-                lib_shared.install("ghostty-internal.dll");
++                lib_shared.?.install("ghostty-internal.dll");
+                 lib_static.install("ghostty-internal-static.lib");
+             } else {
+-                lib_shared.install("ghostty-internal.so");
+-                lib_static.install("ghostty-internal.a");
++                lib_static.install("libghostty.a");
+             }
          }
      }
 diff --git a/include/ghostty.h b/include/ghostty.h
-index 40ff55c..20e7286 100644
+index 9a12b9c..fd337a7 100644
 --- a/include/ghostty.h
 +++ b/include/ghostty.h
-@@ -38,6 +38,7 @@ typedef enum {
+@@ -70,6 +70,7 @@ typedef enum {
    GHOSTTY_PLATFORM_INVALID,
    GHOSTTY_PLATFORM_MACOS,
    GHOSTTY_PLATFORM_IOS,
@@ -38,7 +49,7 @@ index 40ff55c..20e7286 100644
  } ghostty_platform_e;
  
  typedef enum {
-@@ -426,9 +427,14 @@ typedef struct {
+@@ -494,9 +495,14 @@ typedef struct {
    void* uiview;
  } ghostty_platform_ios_s;
  
@@ -53,20 +64,36 @@ index 40ff55c..20e7286 100644
  } ghostty_platform_u;
  
  typedef enum {
-@@ -1082,6 +1088,8 @@ bool ghostty_surface_needs_confirm_quit(ghostty_surface_t);
- bool ghostty_surface_process_exited(ghostty_surface_t);
- void ghostty_surface_refresh(ghostty_surface_t);
- void ghostty_surface_draw(ghostty_surface_t);
-+void ghostty_surface_display_realized(ghostty_surface_t);
-+void ghostty_surface_display_unrealized(ghostty_surface_t);
- void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
- void ghostty_surface_set_focus(ghostty_surface_t, bool);
- void ghostty_surface_set_occlusion(ghostty_surface_t, bool);
+@@ -1186,6 +1192,24 @@ GHOSTTY_API bool ghostty_surface_needs_confirm_quit(ghostty_surface_t);
+ GHOSTTY_API bool ghostty_surface_process_exited(ghostty_surface_t);
+ GHOSTTY_API void ghostty_surface_refresh(ghostty_surface_t);
+ GHOSTTY_API void ghostty_surface_draw(ghostty_surface_t);
++GHOSTTY_API void ghostty_surface_display_realized(ghostty_surface_t);
++GHOSTTY_API void ghostty_surface_display_unrealized(ghostty_surface_t);
++
++// RGBA8, premultiplied, tightly packed (width * 4 bytes per row).
++// OpenGL readback: the first row is the bottom of the frame.
++// pixels is malloc'd; free it with ghostty_surface_free_frame.
++typedef struct {
++  uint32_t width;
++  uint32_t height;
++  uint8_t* pixels;
++  size_t len;
++} ghostty_exported_frame_s;
++
++GHOSTTY_API bool ghostty_surface_take_frame(ghostty_surface_t,
++                                               ghostty_exported_frame_s*);
++GHOSTTY_API void ghostty_surface_free_frame(ghostty_exported_frame_s*);
++GHOSTTY_API void ghostty_surface_report_renderer_health(ghostty_surface_t,
++                                                           ghostty_action_renderer_health_e);
+ GHOSTTY_API void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
+ GHOSTTY_API void ghostty_surface_set_focus(ghostty_surface_t, bool);
+ GHOSTTY_API void ghostty_surface_set_occlusion(ghostty_surface_t, bool);
 diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
-index 0d5a4f8..19c6b3f 100644
+index 697f0a7..4510994 100644
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
-@@ -8,7 +8,23 @@ const std = @import("std");
+@@ -8,7 +8,38 @@ const std = @import("std");
  const builtin = @import("builtin");
  const assert = @import("../quirks.zig").inlineAssert;
  const Allocator = std.mem.Allocator;
@@ -78,30 +105,35 @@ index 0d5a4f8..19c6b3f 100644
 +            return .{};
 +        }
 +        pub fn msgSend(_: @This(), comptime Ret: type, _: anytype, _: anytype) Ret {
++            if (Ret == void) return;
++            return undefined;
++        }
++        pub fn getProperty(_: @This(), comptime Ret: type, _: []const u8) Ret {
++            if (Ret == void) return;
 +            return undefined;
 +        }
 +    };
++    pub const Class = struct {
++        pub fn msgSend(_: @This(), comptime Ret: type, _: anytype, _: anytype) Ret {
++            if (Ret == void) return;
++            return undefined;
++        }
++    };
++    pub fn getClass(_: []const u8) ?Class {
++        return null;
++    }
 +    pub fn sel(_: []const u8) [*:0]const u8 {
 +        return "";
 +    }
 +    pub const c = struct {
 +        pub const id = ?*anyopaque;
++        pub const SEL = [*:0]const u8;
 +    };
 +};
  const apprt = @import("../apprt.zig");
  const font = @import("../font/main.zig");
- const input = @import("../input.zig");
-@@ -26,6 +42,9 @@ const log = std.log.scoped(.embedded_window);
- pub const resourcesDir = internal_os.resourcesDir;
- 
- pub const App = struct {
-+    /// GtkGLArea (and GTK OpenGL in general) must draw on the app thread.
-+    pub const must_draw_from_app_thread = true;
-+
-     /// Because we only expect the embedding API to be used in embedded
-     /// environments, the options are extern so that we can expose it
-     /// directly to a C callconv and not pay for any translation costs.
-@@ -343,6 +362,7 @@ pub const App = struct {
+ const global = @import("../global.zig");
+@@ -382,6 +413,7 @@ pub const App = struct {
  pub const Platform = union(PlatformTag) {
      macos: MacOS,
      ios: IOS,
@@ -109,20 +141,20 @@ index 0d5a4f8..19c6b3f 100644
  
      // If our build target for libghostty is not darwin then we do
      // not include macos support at all.
-@@ -356,6 +376,12 @@ pub const Platform = union(PlatformTag) {
+@@ -395,6 +427,12 @@ pub const Platform = union(PlatformTag) {
          uiview: objc.Object,
      } else void;
  
 +    pub const GTK = struct {
-+        /// Host GtkGLArea (or other GL widget). The embedder must make
-+        /// this context current before ghostty_surface_draw.
++        /// Host GtkGLArea. libghostty draws on its own thread and exports
++        /// frames; the pointer is only here so the C ABI stays stable.
 +        gl_area: *anyopaque,
 +    };
 +
      // The C ABI compatible version of this union. The tag is expected
      // to be stored elsewhere.
      pub const C = extern union {
-@@ -366,6 +392,10 @@ pub const Platform = union(PlatformTag) {
+@@ -405,6 +443,10 @@ pub const Platform = union(PlatformTag) {
          ios: extern struct {
              uiview: ?*anyopaque,
          },
@@ -133,7 +165,7 @@ index 0d5a4f8..19c6b3f 100644
      };
  
      /// Initialize a Platform a tag and configuration from the C ABI.
-@@ -385,6 +415,12 @@ pub const Platform = union(PlatformTag) {
+@@ -424,6 +466,12 @@ pub const Platform = union(PlatformTag) {
                      break :ios error.UIViewMustBeSet);
                  break :ios .{ .ios = .{ .uiview = uiview } };
              } else error.UnsupportedPlatform,
@@ -146,7 +178,7 @@ index 0d5a4f8..19c6b3f 100644
          };
      }
  };
-@@ -395,6 +431,7 @@ pub const PlatformTag = enum(c_int) {
+@@ -434,6 +482,7 @@ pub const PlatformTag = enum(c_int) {
  
      macos = 1,
      ios = 2,
@@ -154,214 +186,133 @@ index 0d5a4f8..19c6b3f 100644
  };
  
  pub const EnvVar = extern struct {
-@@ -1071,28 +1108,21 @@ pub const Inspector = struct {
-             desc.msgSend(void, objc.sel("release"), .{});
-         }
-         assert(self.backend == .metal);
--        //log.debug("render", .{});
- 
--        // Setup our imgui frame. We need to render multiple frames to ensure
--        // ImGui completes all its state processing. I don't know how to fix
--        // this.
-         for (0..2) |_| {
-             cimgui.ImGui_ImplMetal_NewFrame(desc.value);
-             try self.newFrame();
-             cimgui.c.ImGui_NewFrame();
- 
--            // Build our UI
-             render: {
-                 const surface = &self.surface.core_surface;
-                 const inspector = surface.inspector orelse break :render;
-                 inspector.render(surface);
-             }
- 
--            // Render
-             cimgui.c.ImGui_Render();
-         }
- 
--        // MTLRenderCommandEncoder
-         const encoder = command_buffer.msgSend(
-             objc.Object,
-             objc.sel("renderCommandEncoderWithDescriptor:"),
-@@ -1690,6 +1720,21 @@ pub const CAPI = struct {
+@@ -1991,6 +2040,68 @@ pub const CAPI = struct {
          surface.draw();
      }
  
-+    /// Recreate GPU resources after the host GL context is current again.
-+    /// Matches GTK's GtkGLArea realize path. The embedder must make the
-+    /// context current first.
++    /// Recreate GPU resources after the host display is current again.
 +    export fn ghostty_surface_display_realized(surface: *Surface) void {
-+        surface.core_surface.renderer.displayRealized() catch |err| {
++        surface.core_surface.displayRealized() catch |err| {
 +            log.err("error in displayRealized err={}", .{err});
 +        };
 +    }
 +
-+    /// Drop GPU resources when the host GL context is going away.
-+    /// Matches GTK's GtkGLArea unrealize path. Do not free the surface.
++    /// Drop GPU resources when the host display is going away.
++    /// Does not free the surface.
 +    export fn ghostty_surface_display_unrealized(surface: *Surface) void {
-+        surface.core_surface.renderer.displayUnrealized();
++        surface.core_surface.displayUnrealized();
++    }
++
++    const ExportedFrame = extern struct {
++        width: u32,
++        height: u32,
++        pixels: ?[*]u8,
++        len: usize,
++    };
++
++    /// Copy the latest CPU frame into `out`. DMABUF frames are dropped;
++    /// the embedder should report unhealthy presentation so the renderer
++    /// readbacks pixels instead. Returns false when no CPU frame is waiting.
++    export fn ghostty_surface_take_frame(surface: *Surface, out: *ExportedFrame) bool {
++        const frame = surface.core_surface.renderer.takeFrame() orelse return false;
++        switch (frame) {
++            .dmabuf => |buf| {
++                buf.deinit();
++                return false;
++            },
++            .memory => |mem| {
++                defer mem.deinit();
++                if (mem.pixels.len == 0) return false;
++                const raw = std.c.malloc(mem.pixels.len) orelse return false;
++                const copy: [*]u8 = @ptrCast(raw);
++                @memcpy(copy[0..mem.pixels.len], mem.pixels);
++                out.* = .{
++                    .width = mem.width,
++                    .height = mem.height,
++                    .pixels = copy,
++                    .len = mem.pixels.len,
++                };
++                return true;
++            },
++        }
++    }
++
++    export fn ghostty_surface_free_frame(frame: *ExportedFrame) void {
++        if (frame.pixels) |ptr| std.c.free(ptr);
++        frame.* = .{
++            .width = 0,
++            .height = 0,
++            .pixels = null,
++            .len = 0,
++        };
++    }
++
++    export fn ghostty_surface_report_renderer_health(surface: *Surface, health_raw: c_int) void {
++        const health = std.enums.fromInt(renderer.Health, health_raw) orelse return;
++        surface.core_surface.reportPresentationHealth(health);
 +    }
 +
      /// Update the size of a surface. This will trigger resize notifications
      /// to the pty and the renderer.
      export fn ghostty_surface_set_size(surface: *Surface, w: u32, h: u32) void {
-@@ -2090,12 +2135,9 @@ pub const CAPI = struct {
-         app: *App,
-         window: *anyopaque,
-     ) void {
--        // This is only supported on macOS
-         if (comptime builtin.target.os.tag != .macos) return;
- 
-         const config = &app.config;
--
--        // Do nothing if we don't have background transparency enabled
-         if (config.@"background-opacity" >= 1.0) return;
- 
-         const nswindow = objc.Object.fromId(window);
 diff --git a/src/build/GhosttyLib.zig b/src/build/GhosttyLib.zig
-index 2ac3835..1f63923 100644
+index e340b59..ba9f357 100644
 --- a/src/build/GhosttyLib.zig
 +++ b/src/build/GhosttyLib.zig
-@@ -38,17 +38,23 @@ pub fn initStatic(
+@@ -43,6 +43,10 @@ pub fn initStatic(
      // Otherwise, you get undefined symbol errors.
      lib.bundle_compiler_rt = true;
      lib.bundle_ubsan_rt = true;
-+    // Embedders link this into a PIE GTK binary.
-+    lib.root_module.pic = true;
- 
-     // Add our dependencies. Get the list of all static deps so we can
-     // build a combined archive if necessary.
-     var lib_list = try deps.add(lib);
-     try lib_list.append(b.allocator, lib.getEmittedBin());
- 
--    if (!deps.config.target.result.os.tag.isDarwin()) return .{
--        .step = &lib.step,
--        .output = lib.getEmittedBin(),
--        .dsym = null,
--    };
++    // Embedders link this archive into a PIE executable.
 +    if (!deps.config.target.result.os.tag.isDarwin()) {
-+        const merged = mergeStaticLibs(b, "ghostty", "libghostty-fat.a", lib_list.items);
-+        merged.step.dependOn(&lib.step);
-+        return .{
-+            .step = merged.step,
-+            .output = merged.output,
-+            .dsym = null,
-+        };
++        lib.root_module.pic = true;
 +    }
  
-     // Create a static lib that contains all our dependencies.
-     const libtool = LibtoolStep.create(b, .{
-@@ -145,6 +151,37 @@ pub fn install(self: *const GhosttyLib, name: []const u8) void {
-     b.getInstallStep().dependOn(&lib_install.step);
- }
- 
-+fn mergeStaticLibs(
-+    b: *std.Build,
-+    name: []const u8,
-+    out_name: []const u8,
-+    sources: []const std.Build.LazyPath,
-+) struct { step: *std.Build.Step, output: std.Build.LazyPath } {
-+    // GNU ar MRI: fold each input archive into one so embedders can
-+    // link a single .a. Darwin uses libtool -static for the same job.
-+    const run = b.addSystemCommand(&.{
-+        "sh",
-+        "-c",
-+        \\set -eu
-+        \\out="$1"
-+        \\shift
-+        \\{
-+        \\  printf 'CREATE %s\n' "$out"
-+        \\  for f in "$@"; do
-+        \\    printf 'ADDLIB %s\n' "$f"
-+        \\  done
-+        \\  printf 'SAVE\nEND\n'
-+        \\} | ar -M
-+        ,
-+        name,
-+    });
-+    const output = run.addOutputFileArg(out_name);
-+    for (sources) |source| {
-+        run.addFileArg(source);
-+    }
-+    return .{ .step = &run.step, .output = output };
-+}
-+
- pub fn installHeader(self: *const GhosttyLib) void {
-     const b = self.step.owner;
-     const header_install = b.addInstallHeaderFile(
+     if (deps.config.target.result.os.tag == .windows) {
+         // Zig's ubsan emits /exclude-symbols linker directives that
 diff --git a/src/build/SharedDeps.zig b/src/build/SharedDeps.zig
-index 9276c99..0913b64 100644
+index 8f4e239..9627db2 100644
 --- a/src/build/SharedDeps.zig
 +++ b/src/build/SharedDeps.zig
-@@ -528,15 +528,15 @@ pub fn add(
+@@ -653,17 +653,36 @@ pub fn add(
          }
      }
  
-+    // OpenGL loader is needed for the GTK exe and for libghostty embed on Linux.
-+    step.addIncludePath(b.path("vendor/glad/include/"));
-+    step.addCSourceFile(.{
-+        .file = b.path("vendor/glad/src/gl.c"),
-+        .flags = &.{},
-+    });
-+
-     // If we're building an exe then we have additional dependencies.
-     if (step.kind != .lib) {
+-    // If we're building an exe then we have additional dependencies.
+-    if (step.kind != .lib) {
 -        // We always statically compile glad
--        step.addIncludePath(b.path("vendor/glad/include/"));
--        step.addCSourceFile(.{
--            .file = b.path("vendor/glad/src/gl.c"),
--            .flags = &.{},
--        });
--
-         // When we're targeting flatpak we ALWAYS link GTK so we
-         // get access to glib for dbus.
-         if (self.config.flatpak) step.linkSystemLibrary2("gtk4", dynamic_link_opts);
-diff --git a/src/renderer/OpenGL.zig b/src/renderer/OpenGL.zig
-index 4b01da0..4591af9 100644
---- a/src/renderer/OpenGL.zig
-+++ b/src/renderer/OpenGL.zig
-@@ -170,9 +170,8 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
-         => try prepareContext(null),
++    // Linux libghostty creates its own EGL context. The GL loader has to
++    // live in the static archive, not only in the GTK executable.
++    const bundle_gl_loader = !step.rootModuleTarget().os.tag.isDarwin() and
++        self.config.renderer == .opengl;
++    if (bundle_gl_loader) {
+         step.root_module.addIncludePath(b.path("vendor/glad/include/"));
+         step.root_module.addCSourceFile(.{
+             .file = b.path("vendor/glad/src/gl.c"),
+             .flags = &.{},
+         });
++        step.root_module.addCSourceFile(.{
++            .file = b.path("vendor/glad/src/glad_egl.c"),
++            .flags = &.{},
++        });
++        step.root_module.linkSystemLibrary("egl", dynamic_link_opts);
++    }
++
++    // If we're building an exe then we have additional dependencies.
++    if (step.kind != .lib) {
++        if (!bundle_gl_loader) {
++            // We always statically compile glad
++            step.root_module.addIncludePath(b.path("vendor/glad/include/"));
++            step.root_module.addCSourceFile(.{
++                .file = b.path("vendor/glad/src/gl.c"),
++                .flags = &.{},
++            });
++        }
  
-         apprt.embedded => {
--            // TODO(mitchellh): this does nothing today to allow libghostty
--            // to compile for OpenGL targets but libghostty is strictly
--            // broken for rendering on this platforms.
-+            // Host GtkGLArea already made a desktop OpenGL context current.
-+            try prepareContext(null);
-         },
-     }
- 
-@@ -209,9 +208,7 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
-         },
- 
-         apprt.embedded => {
--            // TODO(mitchellh): this does nothing today to allow libghostty
--            // to compile for OpenGL targets but libghostty is strictly
--            // broken for rendering on this platforms.
-+            // Same as GTK: draw on the app thread.
-         },
-     }
- }
-@@ -228,9 +225,7 @@ pub fn threadExit(self: *const OpenGL) void {
-             // be sharing the global bindings with other windows.
-         },
- 
--        apprt.embedded => {
--            // TODO: see threadEnter
--        },
-+        apprt.embedded => {},
-     }
- }
- 
-@@ -238,7 +233,9 @@ pub fn displayRealized(self: *const OpenGL) void {
-     _ = self;
- 
-     switch (apprt.runtime) {
--        apprt.gtk => prepareContext(null) catch |err| {
-+        apprt.gtk,
-+        apprt.embedded,
-+        => prepareContext(null) catch |err| {
-             log.warn(
-                 "Error preparing GL context in displayRealized, err={}",
-                 .{err},
+-        // Link EGL for GTK.
+-        if (self.config.app_runtime == .gtk) {
++        // Link EGL for GTK on targets that did not already bundle it.
++        if (self.config.app_runtime == .gtk and !bundle_gl_loader) {
+             step.root_module.addCSourceFile(.{
+                 .file = b.path("vendor/glad/src/glad_egl.c"),
+                 .flags = &.{},

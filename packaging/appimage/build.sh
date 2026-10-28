@@ -10,7 +10,7 @@
 # Requires Ubuntu 26.04-class deps: meson, ninja, valac, pkg-config,
 # GTK4/libadwaita, libxml2, libpng, zlib, bzip2, librsvg2-bin, curl, file,
 # patchelf, python3, xz-utils.
-# Zig 0.15.2 is fetched by scripts/fetch-zig.sh.
+# Zig 0.17.0 is fetched by scripts/fetch-zig.sh.
 #
 # AppImages built on Ubuntu 26.04 target that glibc floor (GTK 4.22 / libadwaita 1.9).
 set -euo pipefail

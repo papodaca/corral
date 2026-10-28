@@ -18,18 +18,18 @@ find_zig() {
   local candidate
   for candidate in \
     "${ROOT}/third_party/zig-linux/zig" \
-    /tmp/corral-tools/zig-x86_64-linux-0.15.2/zig \
+    /tmp/corral-tools/zig-x86_64-linux-0.17.0/zig \
     "$(command -v zig || true)"; do
     if [[ -z ${candidate} || ! -x ${candidate} ]]; then
       continue
     fi
     ver=$("${candidate}" version 2>/dev/null || true)
-    if [[ ${ver} == 0.15.2 ]]; then
+    if [[ ${ver} == 0.17.0 ]]; then
       printf '%s' "${candidate}"
       return
     fi
   done
-  echo "Need Zig 0.15.2 on PATH or ZIG= (got ${ver:-none})" >&2
+  echo "Need Zig 0.17.0 on PATH or ZIG= (got ${ver:-none})" >&2
   echo "Run scripts/fetch-zig.sh first." >&2
   exit 1
 }

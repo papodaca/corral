@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Clone Ghostty v1.3.1 into third_party/ghostty and apply the GTK embed patch.
+# Clone Ghostty v1.4.0 into third_party/ghostty and apply the GTK embed patch.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 DEST="${ROOT}/third_party/ghostty"
 PATCH="${ROOT}/patches/ghostty-gtk-embed.patch"
-TAG=v1.3.1
+TAG=v1.4.0
 
 if [[ ! -f ${DEST}/include/ghostty.h ]]; then
   git clone --depth 1 --branch "${TAG}" https://github.com/ghostty-org/ghostty.git "${DEST}"

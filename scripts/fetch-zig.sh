@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Download Zig 0.15.2 into third_party/zig-linux if needed.
+# Download Zig 0.17.0 into third_party/zig-linux if needed.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 DEST="${ROOT}/third_party/zig-linux"
-VERSION=0.15.2
+VERSION=0.17.0
 ARCH=$(uname -m)
 case "${ARCH}" in
   x86_64|aarch64) ;;

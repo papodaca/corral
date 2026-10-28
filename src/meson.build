@@ -49,6 +49,7 @@ libbz2 = cc.find_library ('bz2')
 libxml2 = cc.find_library ('xml2')
 libz = cc.find_library ('z')
 libpng = cc.find_library ('png')
+libegl = cc.find_library ('EGL')
 thread_dep = dependency ('threads')
 
 libghostty_dep = declare_dependency (
@@ -61,6 +62,7 @@ libghostty_dep = declare_dependency (
     libxml2,
     libz,
     libpng,
+    libegl,
     thread_dep,
   ],
 )

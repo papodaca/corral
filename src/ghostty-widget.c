@@ -25,6 +25,13 @@ struct _CorralGhostty {
     gboolean gpu_dropped;
     gint tick_queued;
     guint tick_source;
+
+    GLuint blit_program;
+    GLuint blit_vao;
+    GLuint blit_vbo;
+    GLuint blit_tex;
+    int blit_tex_w;
+    int blit_tex_h;
 };
 
 enum {
@@ -176,23 +183,65 @@ typedef struct {
 } ClipboardRead;
 
 static void
+complete_clipboard_text (ghostty_surface_t surface,
+                         void *request,
+                         const char *text,
+                         bool confirmed)
+{
+    const char *value = text != NULL ? text : "";
+    ghostty_clipboard_content_s content = {
+        .mime = "text/plain",
+        .data = value,
+        .len = strlen (value),
+    };
+    ghostty_clipboard_complete_s complete = {
+        .contents = &content,
+        .contents_len = 1,
+        .confirmed = confirmed,
+    };
+    ghostty_surface_complete_clipboard_request (surface, &complete, request);
+}
+
+static void
 on_clipboard_text (GObject *source, GAsyncResult *result, gpointer data)
 {
     ClipboardRead *read = data;
     char *text = gdk_clipboard_read_text_finish (GDK_CLIPBOARD (source), result, NULL);
-    ghostty_surface_complete_clipboard_request (
-        read->surface,
-        text != NULL ? text : "",
-        read->request,
-        FALSE);
+    complete_clipboard_text (read->surface, read->request, text, false);
     g_free (text);
     g_free (read);
 }
 
-static bool
-read_clipboard_cb (void *surface_ud, ghostty_clipboard_e clipboard, void *request)
+static ghostty_clipboard_read_result_e
+read_clipboard_cb (void *surface_ud,
+                   ghostty_clipboard_e clipboard,
+                   void *request,
+                   const char *const *mimes,
+                   size_t mimes_len,
+                   bool list)
 {
     CorralGhostty *self = CORRAL_GHOSTTY (surface_ud);
+    if (list && mimes_len == 0) {
+        const char *available[] = { "text/plain" };
+        ghostty_clipboard_complete_s complete = {
+            .available = available,
+            .available_len = 1,
+        };
+        ghostty_surface_complete_clipboard_request (self->surface, &complete, request);
+        return GHOSTTY_CLIPBOARD_READ_STARTED;
+    }
+
+    gboolean wants_text = mimes_len == 0;
+    for (size_t i = 0; i < mimes_len; i++) {
+        if (mimes[i] != NULL && g_strcmp0 (mimes[i], "text/plain") == 0) {
+            wants_text = TRUE;
+            break;
+        }
+    }
+    if (!wants_text) {
+        return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED;
+    }
+
     GdkClipboard *clip = gtk_widget_get_clipboard (GTK_WIDGET (self));
     if (clipboard == GHOSTTY_CLIPBOARD_SELECTION) {
         clip = gtk_widget_get_primary_clipboard (GTK_WIDGET (self));
@@ -201,22 +250,25 @@ read_clipboard_cb (void *surface_ud, ghostty_clipboard_e clipboard, void *reques
     read->surface = self->surface;
     read->request = request;
     gdk_clipboard_read_text_async (clip, NULL, on_clipboard_text, read);
-    return true;
+    return GHOSTTY_CLIPBOARD_READ_STARTED;
 }
 
 static void
 confirm_read_clipboard_cb (void *surface_ud,
-                           const char *text,
+                           const ghostty_clipboard_confirm_s *confirm,
                            void *request,
                            ghostty_clipboard_request_e kind)
 {
     (void) kind;
     CorralGhostty *self = CORRAL_GHOSTTY (surface_ud);
-    ghostty_surface_complete_clipboard_request (
-        self->surface,
-        text != NULL ? text : "",
-        request,
-        TRUE);
+    ghostty_clipboard_complete_s complete = {
+        .contents = confirm != NULL ? confirm->contents : NULL,
+        .contents_len = confirm != NULL ? confirm->contents_len : 0,
+        .available = confirm != NULL ? confirm->available : NULL,
+        .available_len = confirm != NULL ? confirm->available_len : 0,
+        .confirmed = true,
+    };
+    ghostty_surface_complete_clipboard_request (self->surface, &complete, request);
 }
 
 static void
@@ -825,13 +877,6 @@ static gboolean
 create_surface (CorralGhostty *self, GError **error)
 {
     strip_nested_herdr_env ();
-    gtk_gl_area_make_current (GTK_GL_AREA (self));
-    if (gtk_gl_area_get_error (GTK_GL_AREA (self)) != NULL) {
-        g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                             "OpenGL context is not available");
-        return FALSE;
-    }
-    gtk_gl_area_attach_buffers (GTK_GL_AREA (self));
 
     if (!ghostty_global_inited) {
         char *argv0 = g_strdup ("corral");
@@ -888,6 +933,10 @@ create_surface (CorralGhostty *self, GError **error)
     }
 
     ghostty_surface_set_focus (self->surface, true);
+    /* CPU frames. DMABUF import needs GTK's texture builder; a GtkGLArea
+     * upload of the readback is enough for one terminal. */
+    ghostty_surface_report_renderer_health (
+        self->surface, GHOSTTY_RENDERER_HEALTH_UNHEALTHY);
     apply_surface_geometry (self);
     queue_tick (self);
     return TRUE;
@@ -897,14 +946,10 @@ static void
 on_realize (GtkGLArea *area)
 {
     CorralGhostty *self = CORRAL_GHOSTTY (area);
-    gtk_gl_area_make_current (area);
-    if (gtk_gl_area_get_error (area) != NULL) {
-        return;
-    }
     /* GtkGLArea can unrealize/realize without destroying the widget
-     * (scale change, moving outputs). Ghostty GTK keeps the PTY and
-     * only rebuilds GPU state. Freeing the surface here joined IO
-     * threads from the GTK thread and froze the window. */
+     * (scale change, moving outputs). Ghostty keeps the PTY and only
+     * rebuilds GPU state. The renderer owns an EGL context, so this
+     * does not need the widget's GL context current. */
     if (self->surface != NULL && self->gpu_dropped) {
         ghostty_surface_display_realized (self->surface);
         self->gpu_dropped = FALSE;
@@ -919,13 +964,12 @@ on_unrealize (GtkGLArea *area)
     if (self->surface == NULL) {
         return;
     }
-    gtk_gl_area_make_current (area);
-    if (gtk_gl_area_get_error (area) != NULL) {
-        g_warning ("GL context unavailable on unrealize; GPU resources may leak");
-        return;
-    }
     ghostty_surface_display_unrealized (self->surface);
     self->gpu_dropped = TRUE;
+    self->blit_program = 0;
+    self->blit_vao = 0;
+    self->blit_vbo = 0;
+    self->blit_tex = 0;
 }
 
 static void
@@ -956,6 +1000,133 @@ ensure_surface (CorralGhostty *self)
     return TRUE;
 }
 
+static GLuint
+compile_shader (GLenum type, const char *source)
+{
+    GLuint shader = glCreateShader (type);
+    glShaderSource (shader, 1, &source, NULL);
+    glCompileShader (shader);
+    GLint ok = GL_FALSE;
+    glGetShaderiv (shader, GL_COMPILE_STATUS, &ok);
+    if (ok != GL_TRUE) {
+        char log[512];
+        glGetShaderInfoLog (shader, sizeof log, NULL, log);
+        g_warning ("ghostty blit shader: %s", log);
+        glDeleteShader (shader);
+        return 0;
+    }
+    return shader;
+}
+
+static void
+ensure_blit (CorralGhostty *self)
+{
+    if (self->blit_program != 0) {
+        return;
+    }
+    const char *vs_src =
+        "#version 330 core\n"
+        "layout(location=0) in vec2 pos;\n"
+        "out vec2 uv;\n"
+        "void main() {\n"
+        "  uv = pos * 0.5 + 0.5;\n"
+        "  gl_Position = vec4(pos, 0.0, 1.0);\n"
+        "}\n";
+    const char *fs_src =
+        "#version 330 core\n"
+        "in vec2 uv;\n"
+        "out vec4 frag;\n"
+        "uniform sampler2D tex;\n"
+        "void main() { frag = texture(tex, uv); }\n";
+    GLuint vs = compile_shader (GL_VERTEX_SHADER, vs_src);
+    GLuint fs = compile_shader (GL_FRAGMENT_SHADER, fs_src);
+    if (vs == 0 || fs == 0) {
+        if (vs != 0) {
+            glDeleteShader (vs);
+        }
+        if (fs != 0) {
+            glDeleteShader (fs);
+        }
+        return;
+    }
+    GLuint program = glCreateProgram ();
+    glAttachShader (program, vs);
+    glAttachShader (program, fs);
+    glLinkProgram (program);
+    glDeleteShader (vs);
+    glDeleteShader (fs);
+    GLint ok = GL_FALSE;
+    glGetProgramiv (program, GL_LINK_STATUS, &ok);
+    if (ok != GL_TRUE) {
+        char log[512];
+        glGetProgramInfoLog (program, sizeof log, NULL, log);
+        g_warning ("ghostty blit program: %s", log);
+        glDeleteProgram (program);
+        return;
+    }
+
+    const float verts[] = {
+        -1.f, -1.f,
+         1.f, -1.f,
+        -1.f,  1.f,
+         1.f,  1.f,
+    };
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    glGenVertexArrays (1, &vao);
+    glGenBuffers (1, &vbo);
+    glBindVertexArray (vao);
+    glBindBuffer (GL_ARRAY_BUFFER, vbo);
+    glBufferData (GL_ARRAY_BUFFER, sizeof verts, verts, GL_STATIC_DRAW);
+    glEnableVertexAttribArray (0);
+    glVertexAttribPointer (0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+    glBindVertexArray (0);
+
+    GLuint tex = 0;
+    glGenTextures (1, &tex);
+    glBindTexture (GL_TEXTURE_2D, tex);
+    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    self->blit_program = program;
+    self->blit_vao = vao;
+    self->blit_vbo = vbo;
+    self->blit_tex = tex;
+}
+
+static void
+upload_frame (CorralGhostty *self)
+{
+    if (self->surface == NULL || self->gpu_dropped) {
+        return;
+    }
+    ghostty_exported_frame_s frame = { 0 };
+    if (!ghostty_surface_take_frame (self->surface, &frame)) {
+        return;
+    }
+    if (frame.pixels == NULL || frame.width == 0 || frame.height == 0) {
+        ghostty_surface_free_frame (&frame);
+        return;
+    }
+    glBindTexture (GL_TEXTURE_2D, self->blit_tex);
+    glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+    if (self->blit_tex_w == (int) frame.width &&
+        self->blit_tex_h == (int) frame.height) {
+        glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0,
+                         (GLsizei) frame.width, (GLsizei) frame.height,
+                         GL_RGBA, GL_UNSIGNED_BYTE, frame.pixels);
+    } else {
+        glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA,
+                      (GLsizei) frame.width, (GLsizei) frame.height, 0,
+                      GL_RGBA, GL_UNSIGNED_BYTE, frame.pixels);
+        self->blit_tex_w = (int) frame.width;
+        self->blit_tex_h = (int) frame.height;
+    }
+    ghostty_surface_free_frame (&frame);
+}
+
 static gboolean
 on_render (GtkGLArea *area, GdkGLContext *context)
 {
@@ -966,17 +1137,29 @@ on_render (GtkGLArea *area, GdkGLContext *context)
 
     ensure_surface (self);
     apply_surface_geometry (self);
+    ensure_blit (self);
+    upload_frame (self);
 
     if (width > 0 && height > 0) {
         glViewport (0, 0, width, height);
     }
-
-    if (self->surface != NULL && !self->gpu_dropped) {
-        ghostty_surface_draw (self->surface);
+    glClearColor (0.f, 0.f, 0.f, 1.f);
+    glClear (GL_COLOR_BUFFER_BIT);
+    if (self->blit_program != 0 && self->blit_tex_w > 0) {
+        glDisable (GL_DEPTH_TEST);
+        glEnable (GL_BLEND);
+        glBlendFunc (GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        glUseProgram (self->blit_program);
+        glBindVertexArray (self->blit_vao);
+        glBindTexture (GL_TEXTURE_2D, self->blit_tex);
+        glDrawArrays (GL_TRIANGLE_STRIP, 0, 4);
+        glBindVertexArray (0);
+        glUseProgram (0);
     }
 
-    /* Ghostty/glad load libGL and can drop GDK's current context.
-     * GtkGLArea::snapshot then calls epoxy (glFenceSync) and aborts. */
+    /* A previous libghostty build loaded GL through glad and dropped
+     * GDK's current context. GtkGLArea::snapshot then calls epoxy
+     * (glFenceSync) and aborts. Put GDK's context back. */
     restore_gtk_gl (area, context);
     return TRUE;
 }
@@ -1124,6 +1307,7 @@ corral_ghostty_init (CorralGhostty *self)
     self->tick_queued = 0;
     self->tick_source = 0;
     gtk_gl_area_set_allowed_apis (GTK_GL_AREA (self), GDK_GL_API_GL);
+    gtk_gl_area_set_required_version (GTK_GL_AREA (self), 3, 3);
     gtk_gl_area_set_has_depth_buffer (GTK_GL_AREA (self), FALSE);
     gtk_gl_area_set_has_stencil_buffer (GTK_GL_AREA (self), FALSE);
     gtk_gl_area_set_auto_render (GTK_GL_AREA (self), TRUE);
