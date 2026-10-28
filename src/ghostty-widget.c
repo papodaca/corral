@@ -975,10 +975,16 @@ on_unrealize (GtkGLArea *area)
 static void
 restore_gtk_gl (GtkGLArea *area, GdkGLContext *context)
 {
+    if (gtk_gl_area_get_error (area) != NULL) {
+        return;
+    }
     if (context != NULL) {
         gdk_gl_context_make_current (context);
     } else {
         gtk_gl_area_make_current (area);
+    }
+    if (gtk_gl_area_get_error (area) != NULL) {
+        return;
     }
     gtk_gl_area_attach_buffers (area);
 }
@@ -1137,6 +1143,7 @@ on_render (GtkGLArea *area, GdkGLContext *context)
 
     ensure_surface (self);
     apply_surface_geometry (self);
+    restore_gtk_gl (area, context);
     ensure_blit (self);
     upload_frame (self);
 
@@ -1174,6 +1181,12 @@ on_resize (GtkGLArea *area, int width, int height)
 
     ensure_surface (self);
     apply_surface_geometry (self);
+    /* Ghostty's EGL init makes its own context current on this thread,
+     * then releases it. That drops the GtkGLArea context. Epoxy aborts
+     * if the next GL call finds nothing current, which is the first
+     * frame when GNOME's startup notification draws before the idle
+     * that used to create the surface on a later frame. */
+    restore_gtk_gl (area, NULL);
 }
 
 static void
