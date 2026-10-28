@@ -11,7 +11,7 @@ apt-get install -y --no-install-recommends \
   build-essential \
   pkg-config git \
   meson ninja-build valac \
-  python3 xz-utils \
+  python3 xz-utils zstd \
   libgtk-4-dev libadwaita-1-dev \
   libxml2-dev libpng-dev zlib1g-dev libbz2-dev \
   gobject-introspection \
