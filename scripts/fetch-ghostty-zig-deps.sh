@@ -30,10 +30,28 @@ find "${SRC}" -path '*/example/*' -prune -o -name '*.zig.zon' -print0 \
   | grep -E '\.(tar\.(gz|xz|zst)|tgz)$' \
   | sort -u > "${urls}"
 
+# Zig 0.17 takes the cache from ZIG_GLOBAL_CACHE_DIR. --global-cache-dir
+# after `fetch` is rejected. Download with curl: zig's own HTTP client
+# has failed CI with "unable to unpack tarball: ReadFailed".
 while read -r url; do
   [[ -z ${url} ]] && continue
-  echo "zig fetch ${url}"
-  "${ZIG_BIN}" fetch --global-cache-dir "${CACHE}" "${url}"
+  base=$(basename "${url}")
+  ok=0
+  for attempt in 1 2 3; do
+    echo "zig fetch ${url} (try ${attempt})"
+    tmp=$(mktemp -d)
+    if curl -fL --retry 3 --retry-delay 2 -o "${tmp}/${base}" "${url}" \
+      && "${ZIG_BIN}" fetch "${tmp}/${base}"; then
+      ok=1
+      rm -rf "${tmp}"
+      break
+    fi
+    rm -rf "${tmp}"
+  done
+  if [[ ${ok} -eq 0 ]]; then
+    echo "zig fetch failed: ${url}" >&2
+    exit 1
+  fi
 done < "${urls}"
 
 echo "Zig package cache ready at ${CACHE}"

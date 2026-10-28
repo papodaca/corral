@@ -230,6 +230,8 @@ mkdir -p "${APPDIR}"
 export ZIG
 ZIG=$("${REPO_ROOT}/scripts/fetch-zig.sh")
 "${REPO_ROOT}/scripts/sync-ghostty.sh"
+export ZIG_GLOBAL_CACHE_DIR="${REPO_ROOT}/third_party/zig-cache"
+"${REPO_ROOT}/scripts/fetch-ghostty-zig-deps.sh"
 
 fetch_tooling
 
