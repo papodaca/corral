@@ -46,6 +46,7 @@ depends=(
   bzip2
   hicolor-icon-theme
   ghostty-shell-integration
+  ghostty-terminfo
 )
 
 pkgver() {
@@ -64,10 +65,12 @@ build() {
   if [[ ! -f build-pkg/build.ninja ]]; then
     arch-meson . build-pkg \
       -Dinstall_shell_integration=false \
+      -Dinstall_terminfo=false \
       -Dpackage_version="${_app_ver}"
   else
     meson setup --reconfigure build-pkg \
       -Dinstall_shell_integration=false \
+      -Dinstall_terminfo=false \
       -Dpackage_version="${_app_ver}"
   fi
   meson compile -C build-pkg

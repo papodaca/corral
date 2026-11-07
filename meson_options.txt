@@ -6,6 +6,13 @@ option(
 )
 
 option(
+  'install_terminfo',
+  type: 'boolean',
+  value: true,
+  description: 'Install the xterm-ghostty terminfo under datadir/terminfo',
+)
+
+option(
   'package_version',
   type: 'string',
   value: '',
