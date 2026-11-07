@@ -84,6 +84,7 @@ corral_resources = gnome.compile_resources (
 )
 
 settings_source = files ('settings.vala')
+config_appearance_source = files ('config-appearance.c')
 
 epoxy_lib = meson.get_compiler ('c').find_library ('epoxy')
 
