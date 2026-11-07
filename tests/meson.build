@@ -24,6 +24,22 @@ config_appearance_test = executable(
 
 test('config-appearance', config_appearance_test)
 
+term_session_test = executable(
+  'term-session-test',
+  files('term-session-test.c') + term_session_source + config_appearance_source,
+  dependencies: [
+    gio_dep,
+    libghostty_vt_dep,
+  ],
+  include_directories: include_directories('../src'),
+  c_args: [
+    '-DG_LOG_DOMAIN="corral"',
+    '-DFIXTURES_DIR="@0@"'.format(meson.current_source_dir() / 'fixtures'),
+  ],
+)
+
+test('term-session', term_session_test)
+
 herdr_test = executable(
   'herdr-test',
   files('herdr-test.vala'),
