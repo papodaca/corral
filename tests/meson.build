@@ -30,6 +30,7 @@ term_session_test = executable(
   dependencies: [
     gio_dep,
     libghostty_vt_dep,
+    libm,
   ],
   include_directories: include_directories('../src'),
   c_args: [
@@ -39,6 +40,23 @@ term_session_test = executable(
 )
 
 test('term-session', term_session_test)
+
+term_input_test = executable(
+  'term-input-test',
+  files('term-input-test.c') + term_session_source + config_appearance_source,
+  dependencies: [
+    gio_dep,
+    libghostty_vt_dep,
+    libm,
+  ],
+  include_directories: include_directories('../src'),
+  c_args: [
+    '-DG_LOG_DOMAIN="corral"',
+    '-DFIXTURES_DIR="@0@"'.format(meson.current_source_dir() / 'fixtures'),
+  ],
+)
+
+test('term-input', term_input_test)
 
 herdr_test = executable(
   'herdr-test',
