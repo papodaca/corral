@@ -1,3 +1,13 @@
+libghostty_vt_version_test = executable(
+  'libghostty-vt-version-test',
+  files('libghostty-vt-version.c'),
+  dependencies: [
+    libghostty_vt_dep,
+  ],
+)
+
+test('libghostty-vt-version', libghostty_vt_version_test)
+
 herdr_test = executable(
   'herdr-test',
   files('herdr-test.vala'),

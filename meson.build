@@ -21,6 +21,41 @@ run_command(
   check: true,
 )
 
+# libghostty-vt comes from its release tarballs, unpacked once into
+# third_party/libghostty-vt and reused by later configures.
+build_libghostty_vt = find_program('scripts/build-libghostty-vt.sh')
+libghostty_vt_dir = meson.project_source_root() / 'third_party' / 'libghostty-vt'
+libghostty_vt_src = run_command(
+  build_libghostty_vt,
+  'fetch',
+  libghostty_vt_dir,
+  check: true,
+).stdout().strip()
+
+libghostty_vt_built = custom_target(
+  'libghostty-vt',
+  output: ['libghostty-vt-built.h', 'libghostty-vt.a'],
+  command: [
+    build_libghostty_vt,
+    'build',
+    libghostty_vt_dir,
+    meson.project_build_root() / 'libghostty-vt-prefix',
+    '@OUTPUT0@',
+    '@OUTPUT1@',
+  ],
+  depend_files: files('scripts/build-libghostty-vt.sh'),
+  console: true,
+  install: false,
+)
+
+libghostty_vt_dep = declare_dependency(
+  include_directories: include_directories(
+    'third_party' / 'libghostty-vt' / 'libghostty-vt-1.0.0' / 'include',
+  ),
+  sources: libghostty_vt_built[0],
+  link_args: [libghostty_vt_built[1].full_path()],
+)
+
 app_version = get_option('package_version')
 if app_version == ''
   app_version = run_command(
