@@ -1,7 +1,7 @@
 [CCode (cheader_filename = "ghostty-widget.h")]
 namespace Corral {
     [CCode (cname = "CorralGhostty", type_id = "corral_ghostty_get_type ()")]
-    public class Ghostty : Gtk.GLArea {
+    public class Ghostty : Gtk.Widget {
         [CCode (cname = "corral_ghostty_new")]
         public Ghostty ();
 

@@ -22,7 +22,7 @@ on_activate (GtkApplication *app, gpointer user_data)
     gtk_window_set_default_size (GTK_WINDOW (window), 800, 500);
 
     GtkWidget *term = GTK_WIDGET (corral_ghostty_new ());
-    corral_ghostty_set_command (CORRAL_GHOSTTY (term), "exec /bin/sh");
+    corral_ghostty_set_command (CORRAL_GHOSTTY (term), "/bin/sh");
     gtk_window_set_child (GTK_WINDOW (window), term);
     g_signal_connect (term, "realize", G_CALLBACK (on_term_realize), NULL);
     gtk_window_present (GTK_WINDOW (window));

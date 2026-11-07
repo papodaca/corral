@@ -87,7 +87,25 @@ settings_source = files ('settings.vala')
 config_appearance_source = files ('config-appearance.c')
 term_session_source = files ('term-session.c')
 
-epoxy_lib = meson.get_compiler ('c').find_library ('epoxy')
+harfbuzz_dep = dependency ('harfbuzz')
+
+# Vala passes --pkg for each dependency of a target, and HarfBuzz has no
+# vapi, so the C widget builds on its own.
+corral_widget = static_library (
+  'corral-widget',
+  files ('ghostty-widget.c', 'term-sprites.c') + term_session_source + config_appearance_source,
+  dependencies: [
+    gtk_dep,
+    adw_dep,
+    gio_dep,
+    harfbuzz_dep,
+    libghostty_vt_dep,
+    libm,
+  ],
+  c_args: [
+    '-DCORRAL_THEMES_DIR="@0@"'.format (get_option ('prefix') / get_option ('datadir') / 'corral' / 'ghostty-themes'),
+  ],
+)
 
 app_sources = files (
   'main.vala',
@@ -95,7 +113,6 @@ app_sources = files (
   'window.vala',
   'settings.vala',
   'preferences.vala',
-  'ghostty-widget.c',
 )
 
 corral_exe = executable (
@@ -107,30 +124,24 @@ corral_exe = executable (
     gtk_dep,
     adw_dep,
     gio_dep,
-    epoxy_lib,
-    libghostty_dep,
   ],
-  include_directories: [ghostty_inc, include_directories ('.')],
+  link_with: corral_widget,
+  include_directories: include_directories ('.'),
   vala_args: [
     '--target-glib=2.78',
     '--vapidir', meson.current_source_dir (),
     '--pkg', 'ghostty-widget',
   ],
-  link_args: libghostty_link_args,
-  link_depends: libghostty_built[1],
   install: true,
 )
 
 ghostty_spike = executable (
   'ghostty-spike',
-  files ('ghostty-spike.c', 'ghostty-widget.c'),
+  files ('ghostty-spike.c'),
   dependencies: [
     gtk_dep,
-    epoxy_lib,
-    libghostty_dep,
   ],
-  include_directories: [ghostty_inc, include_directories ('.')],
-  link_args: libghostty_link_args,
-  link_depends: libghostty_built[1],
+  link_with: corral_widget,
+  include_directories: include_directories ('.'),
   install: false,
 )

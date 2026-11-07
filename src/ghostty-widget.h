@@ -5,7 +5,7 @@
 G_BEGIN_DECLS
 
 #define CORRAL_TYPE_GHOSTTY (corral_ghostty_get_type ())
-G_DECLARE_FINAL_TYPE (CorralGhostty, corral_ghostty, CORRAL, GHOSTTY, GtkGLArea)
+G_DECLARE_FINAL_TYPE (CorralGhostty, corral_ghostty, CORRAL, GHOSTTY, GtkWidget)
 
 CorralGhostty *corral_ghostty_new (void);
 const char *corral_ghostty_get_command (CorralGhostty *self);
