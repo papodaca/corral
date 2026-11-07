@@ -1,6 +1,6 @@
 # Corral
 
-A GTK window for [Herdr](https://herdr.dev). It embeds [Ghostty](https://ghostty.org) and starts `herdr` as the child process. Workspaces, splits, and agent state stay in Herdr. Close the window and you detach; the Herdr server keeps running.
+A GTK window for [Herdr](https://herdr.dev). The terminal is [libghostty-vt](https://lib.ghostty.org/vt/). Corral draws it and starts `herdr` as the child process. Workspaces, splits, and agent state stay in Herdr. Close the window and you detach; the Herdr server keeps running.
 
 Application id: `dev.corral.Corral`
 Binary: `corral`
@@ -17,16 +17,16 @@ Install details are at [herdr.dev/docs/install](https://herdr.dev/docs/install/)
 
 ## Build from source
 
-Needs Meson 1.0+, Vala, GTK 4.14+, libadwaita 1.5+, libepoxy, and Zig 0.17.0 (Ghostty's compiler). Configure clones Ghostty v1.4.0 into `third_party/ghostty` and applies `patches/ghostty-gtk-embed.patch`. libghostty is linked statically into `corral`.
+Needs Meson 1.0+, Vala, GTK 4.14+, libadwaita 1.5+, HarfBuzz, and Zig 0.17.0. Configure downloads the libghostty-vt 1.0.0 release tarballs into `third_party/libghostty-vt` and links `libghostty-vt.a` into `corral`. It also clones Ghostty v1.4.0 into `third_party/ghostty` and applies `patches/ghostty-gtk-embed.patch`. That application library is still built. The window does not link it.
 
 On Arch / CachyOS:
 
 ```
-sudo pacman -S meson ninja vala pkgconf gtk4 libadwaita libepoxy libglvnd git gcc libxml2 libpng zlib bzip2
+sudo pacman -S meson ninja vala pkgconf gtk4 libadwaita harfbuzz libglvnd git gcc libxml2 libpng zlib bzip2
 ./scripts/fetch-zig.sh
 ```
 
-`fetch-zig.sh` puts Zig 0.17.0 in `third_party/zig-linux`. A matching `zig` on `PATH` works too.
+`fetch-zig.sh` puts Zig 0.17.0 in `third_party/zig-linux`. A matching `zig` on `PATH` works too. A later configure reuses the unpacked tarballs.
 
 ```
 meson setup build
@@ -43,7 +43,7 @@ meson compile -C build
 sudo meson install -C build
 ```
 
-The Arch package depends on `ghostty-shell-integration` and skips installing Ghostty's copy. A prefix install from this tree ships those scripts under `$prefix/share/ghostty`.
+The Arch package depends on `ghostty-shell-integration` and `ghostty-terminfo`, and skips installing Corral's copies. A prefix install from this tree ships the shell scripts under `$prefix/share/ghostty` and the theme files under `$prefix/share/corral/ghostty-themes`. Appearance (theme, cursor, padding) comes from the user's Ghostty config. Font family and size stay in Corral's preferences.
 
 ## Packages
 
@@ -74,7 +74,7 @@ The Flatpak smoke needs `--privileged` for nested bubblewrap. The sandbox gets n
 meson test -C build --print-errorlogs
 ```
 
-`herdr` checks that `herdr` is executable when it is on `PATH`. `settings` covers font size and window size GSettings.
+`herdr` checks that `herdr` is executable when it is on `PATH`. `settings` covers font size and window size GSettings. The other suites cover libghostty-vt, Ghostty appearance config, the terminal session, and keyboard and mouse input. None of them need a display.
 
 ## Shortcuts
 

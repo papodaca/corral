@@ -31,19 +31,20 @@ makedepends=(
   gcc
   desktop-file-utils
   appstream
+  # Still probed while the unused Ghostty application library is configured.
+  libglvnd
+  libxml2
+  libpng
+  zlib
+  bzip2
 )
 
 depends=(
   gtk4
   libadwaita
-  libepoxy
-  libglvnd
+  harfbuzz
   glib2
   gcc-libs
-  libxml2
-  libpng
-  zlib
-  bzip2
   hicolor-icon-theme
   ghostty-shell-integration
   ghostty-terminfo
