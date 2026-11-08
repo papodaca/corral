@@ -1,0 +1,23 @@
+# What the Ghostty 1.4.0 embed changed in herdr's environment, captured on
+# 2026-11-07 from builddir/src/corral with a stub herdr that dumped `env`.
+# Placeholders: @EXE_DIR@ is the directory of the corral binary and
+# @RESOURCES_DIR@ is GHOSTTY_RESOURCES_DIR as corral saw it.
+#
+# The parent had HERDR_ENV, HERDR_PANE_ID, HERDR_SOCKET_PATH,
+# HERDR_CONFIG_PATH, and VTE_VERSION set. The child was exec'd directly
+# (its parent was corral, not a shell) on a pty sized 79x29.
+set COLORTERM=truecolor
+set GHOSTTY_BIN_DIR=@EXE_DIR@
+set GHOSTTY_RESOURCES_DIR=@RESOURCES_DIR@
+set GHOSTTY_SHELL_FEATURES=cursor:blink,path,title
+set GHOSTTY_SURFACE_ID=0x[0-9a-f]{16}
+set TERM=xterm-ghostty
+set TERMINFO=@RESOURCES_DIR@/../terminfo
+set TERM_PROGRAM=ghostty
+set TERM_PROGRAM_VERSION=1.4.0
+append PATH=@EXE_DIR@
+keep HERDR_SOCKET_PATH
+keep HERDR_CONFIG_PATH
+unset HERDR_ENV
+unset HERDR_PANE_ID
+unset VTE_VERSION

@@ -209,8 +209,8 @@ public class Corral.Window : Adw.ApplicationWindow {
         about.application_icon = "dev.corral.Corral";
         about.developer_name = "Corral contributors";
         about.version = Config.VERSION;
-        about.comments = "A GTK window that runs Herdr inside Ghostty. Close the window to detach; the Herdr server keeps running.";
-        about.developers = { "Corral contributors" };
+        about.comments = "A GTK window for Herdr. Close the window to detach; the Herdr server keeps running.";
+        about.developers = { "Corral contributors", "The libghostty team" };
         about.copyright = "© 2026 Corral contributors";
         about.license_type = Gtk.License.MIT_X11;
         about.website = "https://github.com/papodaca/corral";

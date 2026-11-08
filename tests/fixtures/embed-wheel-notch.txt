@@ -1,0 +1,8 @@
+# One discrete wheel notch down, as the Ghostty 1.4.0 embed wrote it to the
+# child, captured on 2026-11-07 from builddir/src/corral with a stub herdr
+# that enabled mouse modes 1000 and 1006 and recorded its stdin. The pty was
+# 72x28 and the pointer was over cell 41,1. Each line is one report, with
+# ESC written as \e. mouse-scroll-multiplier was the default.
+\e[<65;41;1M
+\e[<65;41;1M
+\e[<65;41;1M

@@ -21,9 +21,29 @@ install_data(
 
 if get_option('install_shell_integration')
   install_subdir(
-    meson.project_source_root () / 'third_party' / 'ghostty' / 'src' / 'shell-integration',
+    'shell-integration',
     install_dir: get_option('datadir') / 'ghostty',
     exclude_files: ['README.md'],
+  )
+endif
+
+# Not under share/ghostty/themes: on Arch that directory belongs to ghostty.
+install_subdir(
+  'ghostty-themes',
+  install_dir: get_option('datadir') / 'corral',
+)
+
+# The child's TERMINFO is the terminfo directory beside share/ghostty.
+if get_option('install_terminfo')
+  tic = find_program('tic')
+  custom_target(
+    'terminfo',
+    input: 'terminfo' / 'ghostty.terminfo',
+    output: 'terminfo',
+    command: [tic, '-x', '-o', '@OUTPUT@', '@INPUT@'],
+    build_by_default: true,
+    install: true,
+    install_dir: get_option('datadir'),
   )
 endif
 
