@@ -1134,6 +1134,18 @@ mouse_button (guint button)
     }
 }
 
+/* Button-event tracking drops a motion that names no button. Ghostty
+ * reports the first button still held, the same way a drag is encoded. */
+static GhosttyMouseButton
+held_button (guint buttons_down)
+{
+    for (guint button = 1; button <= 11; button++) {
+        if (buttons_down & (1u << button))
+            return mouse_button (button);
+    }
+    return GHOSTTY_MOUSE_BUTTON_UNKNOWN;
+}
+
 static void
 report_mouse (CorralTermSession *self, GhosttyMouseAction action, GhosttyMouseButton button,
               double x, double y, GhosttyMods mods)
@@ -1490,7 +1502,7 @@ handle_motion (CorralTermSession *self, const Input *input)
     self->mouse_mods = input->mods;
 
     if (mouse_tracking (self) && !(input->mods & GHOSTTY_MODS_SHIFT)) {
-        report_mouse (self, GHOSTTY_MOUSE_ACTION_MOTION, GHOSTTY_MOUSE_BUTTON_UNKNOWN,
+        report_mouse (self, GHOSTTY_MOUSE_ACTION_MOTION, held_button (self->buttons_down),
                       input->x, input->y, input->mods);
         return;
     }

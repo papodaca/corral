@@ -323,6 +323,20 @@ test_drag_with_tracking (void)
 }
 
 static void
+test_button_tracking_drag_names_the_button (void)
+{
+    Fixture f = { 0 };
+    g_autofree char *input = NULL;
+
+    fixture_start (&f, "\033[?1002h\033[?1006hhello world\r\nREADY", NULL);
+    drag (&f, 0, 4, 0, 0, 1000000);
+    input = wait_input (&f, 24);
+
+    g_assert_cmpstr (input, ==, "\033[<0;1;1M\033[<32;5;1M\033[<0;5;1m");
+    fixture_stop (&f);
+}
+
+static void
 test_shift_drag_with_tracking (void)
 {
     Fixture f = { 0 };
@@ -536,6 +550,7 @@ main (int argc, char **argv)
     g_test_add_func ("/term-input/plain-and-ctrl-letters", test_plain_and_ctrl_letters);
     g_test_add_func ("/term-input/drag-without-tracking", test_drag_without_tracking);
     g_test_add_func ("/term-input/drag-with-tracking", test_drag_with_tracking);
+    g_test_add_func ("/term-input/button-tracking-drag", test_button_tracking_drag_names_the_button);
     g_test_add_func ("/term-input/shift-drag-with-tracking", test_shift_drag_with_tracking);
     g_test_add_func ("/term-input/double-click-selects-word", test_double_click_selects_word);
     g_test_add_func ("/term-input/wheel-notch-matches-embed", test_wheel_notch_matches_embed);
