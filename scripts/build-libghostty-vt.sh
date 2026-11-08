@@ -116,10 +116,13 @@ do_build() {
 
   (
     cd "${src}"
+    # The unpacked tarball is not a git repo, so git walks up to Corral.
+    # A Corral release tag then fails Ghostty's "must match build.zig" check.
     ZIG_GLOBAL_CACHE_DIR="${cache}" "${zig_bin}" build \
       --prefix "${prefix}" \
       --cache-dir "${cache}/local" \
       --system "${deps}" \
+      -Dversion-string=1.4.1 \
       -Doptimize=ReleaseFast \
       -Dcpu="${zig_cpu}"
   )
