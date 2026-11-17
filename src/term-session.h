@@ -18,11 +18,19 @@ typedef enum {
 /* TEXT is NULL when the clipboard could not be read. */
 typedef void (*CorralTermTextFn) (const char *text, gpointer data);
 
-/* What the session asks of the window. read_text must call DONE exactly
- * once, from the main loop, possibly before it returns. */
+/* BYTES is NULL when that representation is not on the clipboard.
+ * Borrowed for the call only. */
+typedef void (*CorralTermBytesFn) (GBytes *bytes, gpointer data);
+
+/* What the session asks of the window. read_text and read_bytes must call
+ * DONE exactly once, from the main loop, possibly before they return.
+ * list_mimes returns a NULL-terminated list the caller frees with
+ * g_strfreev, or NULL when the clipboard cannot be listed. */
 typedef struct {
     void (*write_text) (gpointer host, CorralTermClipboard which, const char *text);
     void (*read_text) (gpointer host, CorralTermClipboard which, CorralTermTextFn done, gpointer data);
+    char **(*list_mimes) (gpointer host, CorralTermClipboard which);
+    void (*read_bytes) (gpointer host, CorralTermClipboard which, const char *mime, CorralTermBytesFn done, gpointer data);
     void (*open_url) (gpointer host, const char *url);
 } CorralTermHost;
 

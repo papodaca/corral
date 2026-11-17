@@ -316,23 +316,40 @@ on_clipboard_write (GhosttyTerminal terminal, void *userdata, const GhosttyClipb
 typedef struct {
     gboolean done;
     gboolean expired;
-    char *text;
+    GBytes *bytes;
 } ClipboardWait;
 
 static void
 clipboard_wait_clear (gpointer data)
 {
-    g_free (((ClipboardWait *) data)->text);
+    GBytes *bytes = ((ClipboardWait *) data)->bytes;
+
+    if (bytes)
+        g_bytes_unref (bytes);
 }
 
 static void
-clipboard_wait_done (const char *text, gpointer data)
+clipboard_wait_text (const char *text, gpointer data)
 {
     ClipboardWait *wait = data;
 
     if (!wait->done) {
         wait->done = TRUE;
-        wait->text = g_strdup (text);
+        if (text)
+            wait->bytes = g_bytes_new (text, strlen (text));
+    }
+    g_rc_box_release_full (wait, clipboard_wait_clear);
+}
+
+static void
+clipboard_wait_bytes (GBytes *bytes, gpointer data)
+{
+    ClipboardWait *wait = data;
+
+    if (!wait->done) {
+        wait->done = TRUE;
+        if (bytes && g_bytes_get_size (bytes) > 0)
+            wait->bytes = g_bytes_ref (bytes);
     }
     g_rc_box_release_full (wait, clipboard_wait_clear);
 }
@@ -353,8 +370,8 @@ on_clipboard_read (GhosttyTerminal terminal, void *userdata, const GhosttyClipbo
     CorralTermSession *self = userdata;
     GhosttyClipboardReadReply reply = GHOSTTY_INIT_SIZED (GhosttyClipboardReadReply);
     GhosttyString plain = { (const uint8_t *) "text/plain", 10 };
-    GhosttyClipboardContent content = { plain, { NULL, 0 } };
     gboolean wants_text = read->mimes_len == 0;
+    gboolean wants_bytes = FALSE;
     ClipboardWait *wait;
     guint timer;
 
@@ -363,43 +380,107 @@ on_clipboard_read (GhosttyTerminal terminal, void *userdata, const GhosttyClipbo
         read->reply (read, &reply);
         return;
     }
-    if (read->list && read->mimes_len == 0) {
-        reply.result = GHOSTTY_CLIPBOARD_READ_RESULT_SUCCESS;
-        reply.available = &plain;
-        reply.available_len = 1;
-        read->reply (read, &reply);
-        return;
+    for (size_t i = 0; i < read->mimes_len; i++) {
+        if (is_plain_text (read->mimes[i]))
+            wants_text = TRUE;
+        else
+            wants_bytes = TRUE;
     }
-    for (size_t i = 0; i < read->mimes_len; i++)
-        wants_text = wants_text || is_plain_text (read->mimes[i]);
-    if (!wants_text || !self->host || !self->host->read_text) {
+    if (!self->host || (wants_text && !self->host->read_text)
+        || (wants_bytes && !wants_text && !self->host->read_bytes)) {
         reply.result = GHOSTTY_CLIPBOARD_READ_RESULT_UNSUPPORTED;
         read->reply (read, &reply);
         return;
     }
 
-    wait = g_rc_box_new0 (ClipboardWait);
-    g_rc_box_acquire (wait);
-    self->host->read_text (self->host_data, clipboard_for (read->location), clipboard_wait_done, wait);
-    timer = g_timeout_add (self->clipboard_timeout_ms, clipboard_wait_expire, wait);
-    while (!wait->done && !wait->expired)
-        g_main_context_iteration (NULL, TRUE);
-    if (!wait->expired)
-        g_source_remove (timer);
+    /* A listing with no payload is answered from the advertised types,
+     * without reading them. Kitty uses that to decide it can paste an image. */
+    if (read->list && read->mimes_len == 0) {
+        g_auto (GStrv) listed = NULL;
+        GhosttyString available[32];
+        size_t n = 0;
 
-    if (!wait->done) {
-        g_warning ("clipboard read for OSC 52 timed out after %u ms", self->clipboard_timeout_ms);
-        reply.result = GHOSTTY_CLIPBOARD_READ_RESULT_BUSY;
-    } else if (!wait->text) {
-        reply.result = GHOSTTY_CLIPBOARD_READ_RESULT_IO_ERROR;
-    } else {
-        content.data = (GhosttyString) { (const uint8_t *) wait->text, strlen (wait->text) };
+        if (self->host->list_mimes)
+            listed = self->host->list_mimes (self->host_data, clipboard_for (read->location));
+        if (listed) {
+            for (char **mime = listed; *mime && n < G_N_ELEMENTS (available); mime++) {
+                available[n].ptr = (const uint8_t *) *mime;
+                available[n].len = strlen (*mime);
+                n++;
+            }
+        }
+        if (n == 0)
+            available[n++] = plain;
         reply.result = GHOSTTY_CLIPBOARD_READ_RESULT_SUCCESS;
-        reply.contents = &content;
-        reply.contents_len = 1;
+        reply.available = available;
+        reply.available_len = n;
+        read->reply (read, &reply);
+        return;
     }
-    read->reply (read, &reply);
-    g_rc_box_release_full (wait, clipboard_wait_clear);
+
+    /* One representation at a time. Text goes through the text reader so
+     * charsets match a normal paste. Anything else, images included, is
+     * the raw bytes of that MIME type. */
+    {
+        GhosttyClipboardContent contents[8];
+        GBytes *held[8];
+        size_t n = 0;
+        gboolean text_failed = FALSE;
+
+        for (size_t i = 0; i < read->mimes_len && n < G_N_ELEMENTS (contents); i++) {
+            gboolean text = is_plain_text (read->mimes[i]);
+            const char *mime = g_strndup ((const char *) read->mimes[i].ptr, read->mimes[i].len);
+
+            if (!text && !self->host->read_bytes) {
+                g_free ((char *) mime);
+                continue;
+            }
+            wait = g_rc_box_new0 (ClipboardWait);
+            g_rc_box_acquire (wait);
+            if (text)
+                self->host->read_text (self->host_data, clipboard_for (read->location), clipboard_wait_text, wait);
+            else
+                self->host->read_bytes (self->host_data, clipboard_for (read->location), mime, clipboard_wait_bytes, wait);
+            g_free ((char *) mime);
+            timer = g_timeout_add (self->clipboard_timeout_ms, clipboard_wait_expire, wait);
+            while (!wait->done && !wait->expired)
+                g_main_context_iteration (NULL, TRUE);
+            if (!wait->expired)
+                g_source_remove (timer);
+
+            if (!wait->done) {
+                g_warning ("clipboard read for OSC 52 timed out after %u ms", self->clipboard_timeout_ms);
+                g_rc_box_release_full (wait, clipboard_wait_clear);
+                reply.result = GHOSTTY_CLIPBOARD_READ_RESULT_BUSY;
+                read->reply (read, &reply);
+                for (size_t j = 0; j < n; j++)
+                    g_bytes_unref (held[j]);
+                return;
+            }
+            if (text && !wait->bytes)
+                text_failed = TRUE;
+            if (wait->bytes) {
+                gsize len = 0;
+                contents[n].mime = read->mimes[i];
+                contents[n].data.ptr = g_bytes_get_data (wait->bytes, &len);
+                contents[n].data.len = len;
+                held[n] = g_bytes_ref (wait->bytes);
+                n++;
+            }
+            g_rc_box_release_full (wait, clipboard_wait_clear);
+        }
+
+        if (n == 0 && text_failed) {
+            reply.result = GHOSTTY_CLIPBOARD_READ_RESULT_IO_ERROR;
+        } else {
+            reply.result = GHOSTTY_CLIPBOARD_READ_RESULT_SUCCESS;
+            reply.contents = contents;
+            reply.contents_len = n;
+        }
+        read->reply (read, &reply);
+        for (size_t j = 0; j < n; j++)
+            g_bytes_unref (held[j]);
+    }
 }
 
 static GhosttyCursorStyle
@@ -929,14 +1010,19 @@ typedef struct {
     CorralTermClipboard which;
 } PasteRequest;
 
+static void handle_paste (CorralTermSession *self, CorralTermClipboard from, const char *text);
+
 static void
 on_paste_text (const char *text, gpointer data)
 {
     PasteRequest *request = data;
     g_autoptr (CorralTermSession) self = g_weak_ref_get (&request->session);
 
+    /* The clipboard's other types stay out of this call. libghostty reads
+     * the first text type it recognizes, and a reader that refuses that
+     * type fails the paste. The text from read_text is what gets written. */
     if (self && text)
-        corral_term_session_paste (self, request->which, text);
+        handle_paste (self, request->which, text);
     g_weak_ref_clear (&request->session);
     g_free (request);
 }
@@ -952,6 +1038,26 @@ request_paste (CorralTermSession *self, CorralTermClipboard which)
     g_weak_ref_init (&request->session, self);
     request->which = which;
     self->host->read_text (self->host_data, which, on_paste_text, request);
+}
+
+/* TRUE when a paste chord should insert clipboard text. An image-only
+ * clipboard is not text: the key is left for the program, which is how
+ * Ghostty lets Ctrl+V reach an image-paste binding. No listing means
+ * we cannot tell, so the chord still pastes. */
+static gboolean
+clipboard_has_text (CorralTermSession *self, CorralTermClipboard which)
+{
+    g_auto (GStrv) mimes = NULL;
+
+    if (!self->host || !self->host->list_mimes)
+        return TRUE;
+    mimes = self->host->list_mimes (self->host_data, which);
+    if (!mimes)
+        return TRUE;
+    for (char **mime = mimes; *mime; mime++)
+        if (g_str_has_prefix (*mime, "text/"))
+            return TRUE;
+    return FALSE;
 }
 
 typedef struct {
@@ -988,6 +1094,85 @@ handle_paste (CorralTermSession *self, CorralTermClipboard from, const char *tex
         g_warning ("paste failed: libghostty-vt result %d", result);
     scroll_to_bottom (self);
     g_signal_emit (self, signals[SIGNAL_CHANGED], 0);
+}
+
+static const char *
+image_extension (const char *mime)
+{
+    if (g_str_equal (mime, "image/png"))
+        return "png";
+    if (g_str_equal (mime, "image/jpeg") || g_str_equal (mime, "image/jpg"))
+        return "jpg";
+    if (g_str_equal (mime, "image/gif"))
+        return "gif";
+    if (g_str_equal (mime, "image/webp"))
+        return "webp";
+    if (g_str_equal (mime, "image/bmp"))
+        return "bmp";
+    return NULL;
+}
+
+/* An image with no text. Herdr only pulls that off the desktop clipboard
+ * for a remote machine, so a local pane never sees it. Leave a file and
+ * paste its path, which is what Herdr inserts after a successful bridge. */
+static char *
+image_only_mime (CorralTermSession *self)
+{
+    g_auto (GStrv) mimes = NULL;
+    const char *image = NULL;
+
+    if (!self->host || !self->host->list_mimes || !self->host->read_bytes)
+        return NULL;
+    mimes = self->host->list_mimes (self->host_data, CORRAL_TERM_CLIPBOARD_STANDARD);
+    if (!mimes)
+        return NULL;
+    for (char **mime = mimes; *mime; mime++) {
+        if (g_str_has_prefix (*mime, "text/"))
+            return NULL;
+        if (!image && image_extension (*mime))
+            image = *mime;
+    }
+    return image ? g_strdup (image) : NULL;
+}
+
+static gboolean
+paste_clipboard_image (CorralTermSession *self)
+{
+    g_autofree char *mime = image_only_mime (self);
+    ClipboardWait *wait;
+    guint timer;
+    gsize len = 0;
+    const guint8 *data;
+    g_autofree char *dir = NULL;
+    g_autofree char *path = NULL;
+    g_autoptr (GError) error = NULL;
+
+    if (!mime)
+        return FALSE;
+    wait = g_rc_box_new0 (ClipboardWait);
+    g_rc_box_acquire (wait);
+    self->host->read_bytes (self->host_data, CORRAL_TERM_CLIPBOARD_STANDARD, mime, clipboard_wait_bytes, wait);
+    timer = g_timeout_add (self->clipboard_timeout_ms, clipboard_wait_expire, wait);
+    while (!wait->done && !wait->expired)
+        g_main_context_iteration (NULL, TRUE);
+    if (!wait->expired)
+        g_source_remove (timer);
+    if (!wait->done || !wait->bytes) {
+        g_rc_box_release_full (wait, clipboard_wait_clear);
+        return FALSE;
+    }
+    data = g_bytes_get_data (wait->bytes, &len);
+    dir = g_dir_make_tmp ("corral-clipboard-XXXXXX", &error);
+    if (dir)
+        path = g_strdup_printf ("%s/clipboard.%s", dir, image_extension (mime));
+    if (!path || !g_file_set_contents (path, (const char *) data, len, &error)) {
+        g_warning ("could not store clipboard image: %s", error ? error->message : "no data");
+        g_rc_box_release_full (wait, clipboard_wait_clear);
+        return FALSE;
+    }
+    g_rc_box_release_full (wait, clipboard_wait_clear);
+    handle_paste (self, CORRAL_TERM_CLIPBOARD_STANDARD, path);
+    return TRUE;
 }
 
 static GhosttyKey
@@ -1058,16 +1243,32 @@ handle_key (CorralTermSession *self, const CorralTermKey *key)
     size_t written = 0;
 
     if (chord != CHORD_NONE) {
-        if (key->action == GHOSTTY_KEY_ACTION_RELEASE)
+        CorralTermClipboard which = chord == CHORD_PASTE_PRIMARY ? CORRAL_TERM_CLIPBOARD_PRIMARY
+                                                                 : CORRAL_TERM_CLIPBOARD_STANDARD;
+        gboolean host_handles = chord == CHORD_COPY || clipboard_has_text (self, which);
+
+        if (host_handles) {
+            if (key->action != GHOSTTY_KEY_ACTION_RELEASE) {
+                if (chord == CHORD_COPY)
+                    copy_selection (self);
+                else
+                    request_paste (self, which);
+                g_signal_emit (self, signals[SIGNAL_CHANGED], 0);
+            }
             return TRUE;
-        if (chord == CHORD_COPY)
-            copy_selection (self);
-        else
-            request_paste (self, chord == CHORD_PASTE ? CORRAL_TERM_CLIPBOARD_STANDARD
-                                                      : CORRAL_TERM_CLIPBOARD_PRIMARY);
-        g_signal_emit (self, signals[SIGNAL_CHANGED], 0);
-        return TRUE;
+        }
     }
+
+    /* Herdr reads a key and its release as one chunk when they are written
+     * in the same turn, and its image paste only accepts a single press.
+     * The input method in Ghostty GTK drops the release, so the press is
+     * the whole chunk. */
+    if (key->action == GHOSTTY_KEY_ACTION_RELEASE)
+        return TRUE;
+
+    if ((key->mods & MOD_KEYS) == GHOSTTY_MODS_CTRL && g_unichar_tolower (key->unshifted_codepoint) == 'v'
+        && paste_clipboard_image (self))
+        return TRUE;
 
     ghostty_key_encoder_set_from_terminal (self->key_encoder, self->terminal);
     ghostty_key_event_set_action (self->key_event, key->action);

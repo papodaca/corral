@@ -1276,6 +1276,84 @@ host_read_text (gpointer host, CorralTermClipboard which, CorralTermTextFn done,
     gdk_clipboard_read_text_async (clip, NULL, on_read_text, read);
 }
 
+static GdkClipboard *
+clipboard_for_widget (GtkWidget *widget, CorralTermClipboard which)
+{
+    return which == CORRAL_TERM_CLIPBOARD_PRIMARY ? gtk_widget_get_primary_clipboard (widget)
+                                                  : gtk_widget_get_clipboard (widget);
+}
+
+static char **
+host_list_mimes (gpointer host, CorralTermClipboard which)
+{
+    GdkClipboard *clip = clipboard_for_widget (GTK_WIDGET (host), which);
+    GdkContentFormats *formats = gdk_clipboard_get_formats (clip);
+    gsize n = 0;
+    const char *const *mimes = gdk_content_formats_get_mime_types (formats, &n);
+    GPtrArray *out = g_ptr_array_new ();
+    gboolean saw_text = FALSE;
+
+    for (gsize i = 0; i < n; i++) {
+        g_ptr_array_add (out, g_strdup (mimes[i]));
+        if (g_str_has_prefix (mimes[i], "text/plain"))
+            saw_text = TRUE;
+    }
+    if (!saw_text && gdk_content_formats_contain_gtype (formats, G_TYPE_STRING))
+        g_ptr_array_add (out, g_strdup ("text/plain"));
+    g_ptr_array_add (out, NULL);
+    return (char **) g_ptr_array_free (out, FALSE);
+}
+
+typedef struct {
+    CorralTermBytesFn done;
+    gpointer data;
+} ReadBytes;
+
+static void
+on_read_bytes (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    ReadBytes *read = user_data;
+    GError *error = NULL;
+    GInputStream *in = gdk_clipboard_read_finish (GDK_CLIPBOARD (source), result, NULL, &error);
+    GBytes *bytes = NULL;
+
+    if (in) {
+        GByteArray *buf = g_byte_array_new ();
+        guint8 tmp[8192];
+        gssize n;
+
+        while ((n = g_input_stream_read (in, tmp, sizeof tmp, NULL, NULL)) > 0) {
+            if (buf->len > 64 * 1024 * 1024) {
+                n = -1;
+                break;
+            }
+            g_byte_array_append (buf, tmp, (guint) n);
+        }
+        if (n == 0)
+            bytes = g_byte_array_free_to_bytes (buf);
+        else
+            g_byte_array_unref (buf);
+        g_object_unref (in);
+    }
+    g_clear_error (&error);
+    read->done (bytes, read->data);
+    if (bytes)
+        g_bytes_unref (bytes);
+    g_free (read);
+}
+
+static void
+host_read_bytes (gpointer host, CorralTermClipboard which, const char *mime, CorralTermBytesFn done, gpointer data)
+{
+    GdkClipboard *clip = clipboard_for_widget (GTK_WIDGET (host), which);
+    const char *types[] = { mime, NULL };
+    ReadBytes *read = g_new (ReadBytes, 1);
+
+    read->done = done;
+    read->data = data;
+    gdk_clipboard_read_async (clip, types, G_PRIORITY_DEFAULT, NULL, on_read_bytes, read);
+}
+
 static void
 host_open_url (gpointer host, const char *url)
 {
@@ -1285,6 +1363,8 @@ host_open_url (gpointer host, const char *url)
 static const CorralTermHost host = {
     .write_text = host_write_text,
     .read_text = host_read_text,
+    .list_mimes = host_list_mimes,
+    .read_bytes = host_read_bytes,
     .open_url = host_open_url,
 };
 

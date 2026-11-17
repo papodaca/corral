@@ -36,6 +36,10 @@ typedef struct {
     char *opened;
     gboolean (*during_read) (gpointer fixture);
     guint clipboard_timeout_ms;
+    gboolean offer_image;
+    gboolean image_only;
+    const char *const *listed_mimes;
+    GBytes *image_bytes;
 } Fixture;
 
 static void
@@ -105,9 +109,36 @@ host_open (gpointer host, const char *url)
     f->opened = g_strdup (url);
 }
 
+static char **
+host_list_mimes (gpointer host, CorralTermClipboard which)
+{
+    Fixture *f = host;
+    char **mimes;
+
+    if (f->listed_mimes)
+        return g_strdupv ((char **) f->listed_mimes);
+    if (!f->offer_image)
+        return NULL;
+    mimes = g_new0 (char *, 3);
+    mimes[0] = g_strdup ("image/png");
+    if (!f->image_only)
+        mimes[1] = g_strdup ("text/plain");
+    return mimes;
+}
+
+static void
+host_read_bytes (gpointer host, CorralTermClipboard which, const char *mime, CorralTermBytesFn done, gpointer data)
+{
+    Fixture *f = host;
+
+    done (f->image_bytes, data);
+}
+
 static const CorralTermHost host = {
     .write_text = host_write,
     .read_text = host_read,
+    .list_mimes = host_list_mimes,
+    .read_bytes = host_read_bytes,
     .open_url = host_open,
 };
 
@@ -499,6 +530,72 @@ test_osc52_read_timeout (void)
 }
 
 static void
+test_ctrl_v_under_herdr_keyboard_flags (void)
+{
+    Fixture f = { 0 };
+    g_autofree char *input = NULL;
+
+    /* Herdr pushes kitty flags 7: disambiguate, report events, alternates. */
+    fixture_start (&f, "\033[>7uREADY", NULL);
+    key (&f, XKB_V, GHOSTTY_MODS_CTRL, 'v', "v", TRUE);
+    input = wait_input (&f, 1);
+
+    g_assert_cmpstr (input, ==, "\033[118;5u");
+    fixture_stop (&f);
+}
+
+static void
+test_image_only_ctrl_v_pastes_a_file (void)
+{
+    const guint8 png[] = { 0x89, 'P', 'N', 'G' };
+    Fixture f = { .offer_image = TRUE, .image_only = TRUE };
+    g_autofree char *input = NULL;
+    g_autofree char *stored = NULL;
+    gsize stored_len = 0;
+
+    f.image_bytes = g_bytes_new_static (png, sizeof png);
+    fixture_start (&f, "READY", NULL);
+    key (&f, XKB_V, GHOSTTY_MODS_CTRL, 'v', "v", TRUE);
+    input = wait_input (&f, 8);
+
+    g_assert_true (g_str_has_suffix (input, "/clipboard.png"));
+    g_assert_true (g_file_get_contents (input, &stored, &stored_len, NULL));
+    g_assert_cmpmem (stored, stored_len, png, sizeof png);
+    g_bytes_unref (f.image_bytes);
+    fixture_stop (&f);
+}
+
+static void
+test_ctrl_v_reaches_the_child (void)
+{
+    Fixture f = { .read_mode = READ_NOW, .clipboard = g_strdup ("hello"), .offer_image = TRUE };
+    g_autofree char *input = NULL;
+
+    fixture_start (&f, "READY", NULL);
+    key (&f, XKB_V, GHOSTTY_MODS_CTRL, 'v', "v", TRUE);
+    input = wait_input (&f, 1);
+
+    g_assert_cmpstr (input, ==, "\026");
+    g_assert_cmpuint (f.reads, ==, 0);
+    fixture_stop (&f);
+}
+
+static void
+test_image_only_paste_chord_reaches_the_child (void)
+{
+    Fixture f = { .read_mode = READ_NOW, .offer_image = TRUE, .image_only = TRUE };
+    g_autofree char *input = NULL;
+
+    fixture_start (&f, "READY", NULL);
+    key (&f, XKB_V, GHOSTTY_MODS_CTRL | GHOSTTY_MODS_SHIFT, 'v', "V", TRUE);
+    input = wait_input (&f, 1);
+
+    g_assert_cmpstr (input, ==, "\033[118;6u");
+    g_assert_cmpuint (f.reads, ==, 0);
+    fixture_stop (&f);
+}
+
+static void
 test_large_paste (void)
 {
     Fixture f = { 0 };
@@ -521,6 +618,24 @@ test_large_paste (void)
     }
     g_assert_cmpuint (strlen (input), ==, size);
     g_assert_true (strspn (input, "p") == size);
+    fixture_stop (&f);
+}
+
+static void
+test_paste_ignores_non_text_types (void)
+{
+    Fixture f = {
+        .read_mode = READ_NOW,
+        .clipboard = g_strdup ("hello"),
+        .listed_mimes = (const char *const[]){ "UTF8_STRING", "text/plain", NULL },
+    };
+    g_autofree char *input = NULL;
+
+    fixture_start (&f, "READY", NULL);
+    key (&f, XKB_V, GHOSTTY_MODS_CTRL | GHOSTTY_MODS_SHIFT, 'v', "V", TRUE);
+    input = wait_input (&f, 5);
+
+    g_assert_cmpstr (input, ==, "hello");
     fixture_stop (&f);
 }
 
@@ -558,6 +673,11 @@ main (int argc, char **argv)
     g_test_add_func ("/term-input/osc52-read-defers-resize-and-input", test_osc52_read_defers_resize_and_input);
     g_test_add_func ("/term-input/osc52-read-holds-session", test_osc52_read_holds_session);
     g_test_add_func ("/term-input/osc52-read-timeout", test_osc52_read_timeout);
+    g_test_add_func ("/term-input/paste-ignores-non-text-types", test_paste_ignores_non_text_types);
+    g_test_add_func ("/term-input/ctrl-v-herdr-flags", test_ctrl_v_under_herdr_keyboard_flags);
+    g_test_add_func ("/term-input/image-only-ctrl-v-pastes-a-file", test_image_only_ctrl_v_pastes_a_file);
+    g_test_add_func ("/term-input/ctrl-v-reaches-the-child", test_ctrl_v_reaches_the_child);
+    g_test_add_func ("/term-input/image-only-paste-chord", test_image_only_paste_chord_reaches_the_child);
     g_test_add_func ("/term-input/large-paste", test_large_paste);
     g_test_add_func ("/term-input/paste-chord-brackets", test_paste_chord_brackets);
 
